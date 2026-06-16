@@ -19,6 +19,7 @@
 <header><h1>UBB Begehungsprotokoll</h1><button class="secondary" onclick="saveNow()">Speichern</button></header>
 <nav class="tabbar" id="tabs"></nav>
 <main class="wrap" id="app"></main>
+<div style="position:fixed;right:8px;bottom:8px;background:#eef0f3;border:1px solid #d9dde3;border-radius:999px;padding:5px 9px;font-size:11px;z-index:99">v0.4.15 HTML iOS</div>
 
 <script>
 const KEY='ubb_html_app_04';
@@ -202,8 +203,8 @@ async function exportProtocol(iid){
   setTimeout(()=>{
     const mailTo=(state.settings.workMail||'').trim();
     const msg=mailTo
-      ? `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail an ${mailTo} vorbereitet werden?\n\nHinweis: Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`
-      : `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail vorbereitet werden?\n\nHinweis: Bitte hinterlege unter Büro → API / E-Mail deine Arbeits-E-Mail. Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`;
+      ? `Das Protokoll wurde erstellt.\n\nSoll jetzt eine E-Mail an ${mailTo} vorbereitet werden?\n\nHinweis: Die HTML-Datei musst du anschließend im Mailprogramm manuell anhängen.`
+      : `Das Protokoll wurde erstellt.\n\nSoll jetzt eine E-Mail vorbereitet werden?\n\nHinweis: Bitte hinterlege unter Büro → API / E-Mail deine Arbeits-E-Mail. Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`;
     if(confirm(msg)) emailDraft(iid,fileName);
   },600);
 }
@@ -361,7 +362,47 @@ function emailDraft(iid,fileName=''){
   ].filter(line=>line!==null).join('\n');
   location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
-function exportData(){downloadBlob(JSON.stringify(state,null,2),'ubb_daten.json','application/json')} async function importData(file){if(!file)return;state=JSON.parse(await file.text());save();render()} function downloadBlob(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportData(){downloadBlob(JSON.stringify(state,null,2),'ubb_daten.json','application/json')} async function importData(file){if(!file)return;state=JSON.parse(await file.text());save();render()} function downloadBlob(content,name,type){
+  const blob=new Blob([content],{type});
+  const file=new File([blob],name,{type});
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+
+  const fallbackDownload=()=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=name;
+    a.style.display='none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},4000);
+  };
+
+  const openFallback=()=>{
+    const url=URL.createObjectURL(blob);
+    const w=window.open(url,'_blank');
+    if(!w){
+      fallbackDownload();
+    }
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  };
+
+  if(isIOS && navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({
+      files:[file],
+      title:name,
+      text:'Begehungsprotokoll'
+    }).catch(()=>openFallback());
+    return;
+  }
+
+  if(isIOS){
+    openFallback();
+    return;
+  }
+
+  fallbackDownload();
+}
 function employeeCheckboxes(selected,prefix){return state.employees.map(e=>`<label class="pill"><input type="checkbox" ${selected.includes(e.id)?'checked':''} onchange="${prefix}'${e.id}')"> ${esc(e.name||'Mitarbeiter')}</label>`).join('')||'<p class="muted">Noch keine Mitarbeiter angelegt.</p>'}
 function inp(label,path,type='text'){return `<label>${label}</label><input type="${type}" data-path="${path}" value="${esc(path.split('.').reduce((o,k)=>o?.[k],state))}">`} function ta(label,path){return `<label>${label}</label><textarea data-path="${path}">${esc(path.split('.').reduce((o,k)=>o?.[k],state))}</textarea>`} function rawInp(label,val,onchange){let type=onchange==='date'?'date':'text', oc=onchange&&onchange!=='date'?`oninput="${onchange}"`:'';return `<div><label>${label}</label><input type="${type}" value="${esc(val)}" ${oc}></div>`} function rawTa(label,val,onchange){let oc=onchange?`oninput="${onchange}"`:'';return `<label>${label}</label><textarea ${oc}>${esc(val)}</textarea>`}
 function bindInputs(){document.querySelectorAll('[data-path]').forEach(el=>el.oninput=()=>{let parts=el.dataset.path.split('.'),o=state;while(parts.length>1)o=o[parts.shift()];o[parts[0]]=el.value;save()})}
