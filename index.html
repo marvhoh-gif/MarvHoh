@@ -12,14 +12,14 @@
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.grid{grid-template-columns:1fr}.hide-mobile{display:none}}
     label{font-weight:700;font-size:13px;margin-top:8px;display:block} input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:16px;margin-top:5px} textarea{min-height:88px} input[type=file]{padding:9px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.spacer{flex:1}
     button{border:0;border-radius:12px;padding:12px 14px;font-weight:700;font-size:15px;background:var(--accent);color:#fff;cursor:pointer} button.secondary{background:#eef0f3;color:#17202a} button.danger{background:var(--danger)} button.ghost{background:transparent;color:var(--accent);padding:8px} button.big{font-size:20px;padding:18px;width:100%;border-radius:18px}.plus{font-size:30px;vertical-align:-3px;margin-right:8px}.tabbar{display:flex;gap:8px;overflow:auto;padding:8px 14px;background:#fff;border-bottom:1px solid var(--line)}.tabbar button{white-space:nowrap;background:#eef0f3;color:#17202a}.tabbar button.active{background:var(--accent);color:#fff}
-    .muted{color:var(--muted);font-size:13px}.pill{display:inline-block;background:var(--soft);border:1px solid #cfe4ff;border-radius:999px;padding:6px 10px;margin:3px;font-size:13px}.list-item{border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;background:#fff}.redbox{border:2px solid #c62828;background:#fff5f5;padding:12px;border-radius:8px}.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}.photos img{width:100%;height:110px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}.hidden{display:none!important}.success{background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:10px;border-radius:10px}.inline-success{display:inline-block;background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:8px 10px;border-radius:10px;font-size:13px;font-weight:700}.emp-summary{cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:center;justify-content:space-between}.emp-summary::-webkit-details-marker{display:none}.check{color:#2e7d32;font-weight:800}.warn{background:#fff8e1;border:1px solid #f2d27b;color:#6b4b00;padding:10px;border-radius:10px}
+    .muted{color:var(--muted);font-size:13px}.pill{display:inline-block;background:var(--soft);border:1px solid #cfe4ff;border-radius:999px;padding:6px 10px;margin:3px;font-size:13px}.list-item{border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;background:#fff}.redbox{border:2px solid #c62828;background:#fff5f5;padding:12px;border-radius:8px}.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}.photos img{width:100%;height:110px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}.hidden{display:none!important}.success{background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:10px;border-radius:10px}.inline-success{display:inline-block;background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:8px 10px;border-radius:10px;font-size:13px;font-weight:700}.emp-summary{cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:center;justify-content:space-between}.emp-summary::-webkit-details-marker{display:none}.check{color:#2e7d32;font-weight:800}.warn{background:#fff8e1;border:1px solid #f2d27b;color:#6b4b00;padding:10px;border-radius:10px}.version-badge{position:fixed;right:8px;bottom:8px;background:#eef0f3;color:#17202a;border:1px solid #d9dde3;border-radius:999px;padding:5px 9px;font-size:11px;z-index:99}
   </style>
 <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
 </head>
 <body>
 <header><h1>UBB Begehungsprotokoll</h1><button class="secondary" onclick="saveNow()">Speichern</button></header>
 <nav class="tabbar" id="tabs"></nav>
-<main class="wrap" id="app"></main>
+<main class="wrap" id="app"></main><div class="version-badge">v0.4.26 DOCX</div>
 
 <script>
 const KEY='ubb_html_app_04';
@@ -146,20 +146,21 @@ async function exportProtocol(iid){
   const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.docx`;
 
   try{
-    if(!window.docx) throw new Error('DOCX-Bibliothek nicht geladen');
+    if(!window.docx){
+      throw new Error('DOCX-Bibliothek wurde nicht geladen. Bitte Internetverbindung prüfen und Seite neu laden.');
+    }
     const blob=await protocolDocx(i,p,ai);
     downloadBlob(blob,fileName,'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }catch(e){
-    alert('DOCX-Export konnte nicht erstellt werden. Es wird ersatzweise ein einfaches Word-HTML-Dokument erzeugt.');
-    let html=protocolHtml(i,p,ai);
-    downloadBlob(html,fileName.replace('.docx','.doc'),'application/msword');
+    alert('DOCX-Export konnte nicht erstellt werden:\n\n'+(e.message||e)+'\n\nBitte Seite neu laden und erneut versuchen. Es wird keine .doc-Datei mehr als Ersatz erstellt.');
+    return;
   }
 
   setTimeout(()=>{
     const mailTo=(state.settings.workMail||'').trim();
     const msg=mailTo
-      ? `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail an ${mailTo} vorbereitet werden?\n\nHinweis: Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`
-      : `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail vorbereitet werden?\n\nHinweis: Bitte hinterlege unter Büro → API / E-Mail deine Arbeits-E-Mail. Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`;
+      ? `Das DOCX-Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail an ${mailTo} vorbereitet werden?\n\nHinweis: Die DOCX-Datei musst du anschließend im Mailprogramm manuell anhängen.`
+      : `Das DOCX-Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail vorbereitet werden?\n\nHinweis: Bitte hinterlege unter Büro → API / E-Mail deine Arbeits-E-Mail. Die DOCX-Datei musst du anschließend im Mailprogramm manuell anhängen.`;
     if(confirm(msg)) emailDraft(iid,fileName);
   },600);
 }
