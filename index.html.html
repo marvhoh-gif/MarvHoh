@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UBB Begehungsprotokoll 0.4.14</title>
+  <style>
+    :root{--bg:#f6f7f9;--card:#fff;--text:#15171a;--muted:#68707c;--accent:#1976d2;--danger:#c62828;--line:#d9dde3;--soft:#eef5ff}
+    *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+    h1{font-size:18px;margin:0}.wrap{max-width:920px;margin:0 auto;padding:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.grid{grid-template-columns:1fr}.hide-mobile{display:none}}
+    label{font-weight:700;font-size:13px;margin-top:8px;display:block} input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:16px;margin-top:5px} textarea{min-height:88px} input[type=file]{padding:9px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.spacer{flex:1}
+    button{border:0;border-radius:12px;padding:12px 14px;font-weight:700;font-size:15px;background:var(--accent);color:#fff;cursor:pointer} button.secondary{background:#eef0f3;color:#17202a} button.danger{background:var(--danger)} button.ghost{background:transparent;color:var(--accent);padding:8px} button.big{font-size:20px;padding:18px;width:100%;border-radius:18px}.plus{font-size:30px;vertical-align:-3px;margin-right:8px}.tabbar{display:flex;gap:8px;overflow:auto;padding:8px 14px;background:#fff;border-bottom:1px solid var(--line)}.tabbar button{white-space:nowrap;background:#eef0f3;color:#17202a}.tabbar button.active{background:var(--accent);color:#fff}
+    .muted{color:var(--muted);font-size:13px}.pill{display:inline-block;background:var(--soft);border:1px solid #cfe4ff;border-radius:999px;padding:6px 10px;margin:3px;font-size:13px}.list-item{border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;background:#fff}.redbox{border:2px solid #c62828;background:#fff5f5;padding:12px;border-radius:8px}.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}.photos img{width:100%;height:110px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}.hidden{display:none!important}.success{background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:10px;border-radius:10px}.inline-success{display:inline-block;background:#ecf8ef;border:1px solid #bfe5c7;color:#245b2e;padding:8px 10px;border-radius:10px;font-size:13px;font-weight:700}.emp-summary{cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:center;justify-content:space-between}.emp-summary::-webkit-details-marker{display:none}.check{color:#2e7d32;font-weight:800}.warn{background:#fff8e1;border:1px solid #f2d27b;color:#6b4b00;padding:10px;border-radius:10px}
+  </style>
+</head>
+<body>
+<header><h1>UBB Begehungsprotokoll</h1><button class="secondary" onclick="saveNow()">Speichern</button></header>
+<nav class="tabbar" id="tabs"></nav>
+<main class="wrap" id="app"></main>
+
+<script>
+const KEY='ubb_html_app_04';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+let state=load()||{company:{name:'',address:'',phone:'',email:'',website:'',open:true},employees:[],projects:[],inspections:[],settings:{apiKey:'',apiKeySaved:false,model:'gpt-4o-mini',privateMail:'',workMail:''},activeInspectionId:null};
+if(state.company && state.company.open===undefined) state.company.open = !state.company.name;
+if(state.settings && state.settings.apiKeySaved===undefined) state.settings.apiKeySaved = !!state.settings.apiKey;
+let page='home';
+let flashTarget={};
+function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function saveNow(msg='✅ Gespeichert.'){save(); toast(msg)}
+function saveArea(key,msg){save(); flashTarget[key]=msg; render(); setTimeout(()=>{delete flashTarget[key]; render()},2200)}
+function toast(msg){const d=document.createElement('div');d.className='success';d.textContent=msg;document.querySelector('.wrap').prepend(d);setTimeout(()=>d.remove(),1800)}
+function esc(s){return (s||'').toString().replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}
+function byId(arr,id){return arr.find(x=>x.id===id)}
+function nav(){const tabs=[['home','Start'],['company','Büro'],['projects','Projekte'],['inspections','Begehungen']];document.getElementById('tabs').innerHTML=tabs.map(t=>`<button class="${page===t[0]?'active':''}" onclick="page='${t[0]}';render()">${t[1]}</button>`).join('')}
+function render(){save();nav();({home,company,projects,inspections}[page]||home)()}
+function home(){const open=state.inspections.filter(i=>i.status!=='abgeschlossen').length;document.getElementById('app').innerHTML=`
+  <button class="big" onclick="newInspectionStart()"><span class="plus">＋</span>Neue Begehung</button>
+  <div class="card"><h2>Übersicht</h2><p class="muted">Offene Begehungen: ${open}</p><p class="muted">Projekte: ${state.projects.length} · Mitarbeiter: ${state.employees.length}</p></div>
+  <div class="card"><h2>Letzte Begehungen</h2>${state.inspections.slice(-5).reverse().map(i=>inspectionCard(i)).join('')||'<p class="muted">Noch keine Begehung angelegt.</p>'}</div>`}
+function company(){const c=state.company||{}; const cname=esc(c.name||'Eigene Firma'); const csaved=flashTarget['company']?`<span class="inline-success">${flashTarget['company']}</span>`:''; document.getElementById('app').innerHTML=`<details class="card" ${c.open?'open':''} ontoggle="state.company.open=this.open;save()"><summary class="emp-summary"><h2 style="margin:0">${cname} <span class="check">✓</span></h2>${csaved}</summary>
+ <div style="margin-top:12px">${inp('Firmenname','company.name')} ${ta('Anschrift','company.address')} <div class="grid">${inp('Telefon','company.phone')}${inp('E-Mail','company.email')}${inp('Website','company.website')}</div><div class="row"><button class="secondary" onclick="saveCompany(event)">Firma speichern</button>${flashTarget['company-btn']?`<span class="inline-success">${flashTarget['company-btn']}</span>`:''}</div></div></details>
+ <div class="card"><h2>Mitarbeiter (${state.employees.length})</h2><div id="emplist">${state.employees.map(empCard).join('')||'<p class="muted">Noch keine Mitarbeiter.</p>'}</div><button onclick="addEmployee()">+ Mitarbeiter hinzufügen</button></div>
+ <div class="card"><h2>API / E-Mail</h2><p class="muted">Der API-Key wird nur lokal in deinem Browser gespeichert.</p>${state.settings.apiKeySaved ? `<div class="success">✓ API-Key gespeichert</div><button class="secondary" onclick="state.settings.apiKeySaved=false; render();">API-Key ändern</button>` : `<label>OpenAI API-Key</label><input type="password" id="apiKeyInput" placeholder="OpenAI API-Key eingeben" autocomplete="off">`}${inp('Modell','settings.model')}${inp('Private E-Mail','settings.privateMail')}${inp('Arbeits-E-Mail','settings.workMail')}<div class="row"><button class="secondary" onclick="saveApiSettings(event)">API / E-Mail speichern</button>${flashTarget['api-settings']?`<span class="inline-success">${flashTarget['api-settings']}</span>`:''}</div></div>
+ <div class="card"><h2>Daten sichern / wiederherstellen</h2><p class="muted">Sichert Firma, Mitarbeiter, Projekte, Begehungen, Feststellungen und lokal gespeicherte Fotos als JSON-Datei.</p><div class="row"><button class="secondary" onclick="exportData()">💾 Daten sichern</button><label style="margin:0"><span class="secondary" style="display:inline-block;border-radius:12px;padding:12px 14px;font-weight:700;background:#eef0f3;color:#17202a;cursor:pointer">📂 Daten wiederherstellen</span><input type="file" accept="application/json" onchange="importData(this.files[0])" style="display:none"></label></div><p class="warn">Wichtig: Wiederherstellen ersetzt die aktuell im Browser gespeicherten Daten.</p></div>`; bindInputs()}
+
+
+function saveApiSettings(ev){
+  if(ev) ev.preventDefault();
+  const apiInput=document.getElementById('apiKeyInput');
+  if(apiInput && apiInput.value.trim()){
+    state.settings.apiKey=apiInput.value.trim();
+  }
+  state.settings.apiKeySaved=!!state.settings.apiKey;
+  saveArea('api-settings','✅ API / E-Mail gespeichert');
+}
+function saveCompany(ev){if(ev) ev.preventDefault(); state.company.open=false; saveArea('company','✅ Firma gespeichert')}
+function empCard(e){const key='emp-'+e.id; const name=esc(e.name||'Neuer Mitarbeiter'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${e.open?'open':''}><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div class="grid">${rawInp('Name',e.name,`setEmp('${e.id}','name',this.value)`)}${rawInp('Funktion',e.role,`setEmp('${e.id}','role',this.value)`)}${rawInp('E-Mail',e.email,`setEmp('${e.id}','email',this.value)`)}${rawInp('Telefon',e.phone,`setEmp('${e.id}','phone',this.value)`)}</div><div class="row"><button class="secondary" onclick="saveEmployee('${e.id}')">Mitarbeiter speichern</button><button class="danger" onclick="delEmp('${e.id}')">Löschen</button></div></details>`}
+function saveEmployee(id){const e=byId(state.employees,id); if(e) e.open=false; saveArea('emp-'+id,'✅ Mitarbeiter gespeichert')}
+function addEmployee(){state.employees.push({id:uid(),name:'',role:'Umweltfachliche Bauüberwachung',email:'',phone:'',open:true});render(); toast('Neuer Mitarbeiter angelegt – bitte ausfüllen und speichern.')} function setEmp(id,k,v){byId(state.employees,id)[k]=v;save()} function delEmp(id){state.employees=state.employees.filter(e=>e.id!==id);render()}
+function projects(){document.getElementById('app').innerHTML=`<div class="card"><h2>Projekte (${state.projects.length})</h2><button onclick="addProject()">+ Neues Projekt</button>${state.projects.map(projectCard).join('')||'<p class="muted">Noch kein Projekt.</p>'}</div>`}
+function projectCard(p){const key='proj-'+p.id; const name=esc(p.name||'Neues Projekt'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${p.open?'open':''} ontoggle="setProjectOpen('${p.id}',this.open)"><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div style="margin-top:12px"><div class="grid">${rawInp('Projektname',p.name,`setProj('${p.id}','name',this.value)`)}${rawInp('Projektnummer',p.number,`setProj('${p.id}','number',this.value)`)}${rawInp('Auftraggeber',p.client,`setProj('${p.id}','client',this.value)`)}${rawInp('Ort / Raum / Strecke',p.location,`setProj('${p.id}','location',this.value)`)}</div>${rawTa('Projekthinweise',p.notes,`setProj('${p.id}','notes',this.value)`)}<h4>Verteiler (${(p.distribution||[]).length})</h4><div>${(p.distribution||[]).map((d,idx)=>distRow(p.id,idx,d)).join('')||'<p class="muted">Kein Verteiler eingetragen.</p>'}</div><div class="row"><button class="secondary" onclick="addDist('${p.id}')">+ Verteiler hinzufügen</button><button class="secondary" onclick="saveArea('dist-${p.id}','✅ Verteiler gespeichert')">Verteiler speichern</button>${flashTarget['dist-'+p.id]?`<span class="inline-success">${flashTarget['dist-'+p.id]}</span>`:''}</div><h4>Standardteilnehmer</h4>${employeeCheckboxes(p.standardParticipants||[],`toggleStdPart('${p.id}',`) }<br><div class="row"><button class="secondary" onclick="saveProject('${p.id}')">Projekt speichern</button><button class="danger" onclick="delProj('${p.id}')">Projekt löschen</button></div></div></details>`}
+function saveProject(id){const p=byId(state.projects,id); if(p) p.open=false; saveArea('proj-'+id,'✅ Projekt gespeichert')}
+function setProjectOpen(id,isOpen){const p=byId(state.projects,id); if(p){p.open=isOpen; save()}}
+function distRow(pid,idx,d){return `<div class="grid list-item">${rawInp('Name',d.name,`setDist('${pid}',${idx},'name',this.value)`)}${rawInp('Firma',d.company,`setDist('${pid}',${idx},'company',this.value)`)}${rawInp('Funktion',d.role,`setDist('${pid}',${idx},'role',this.value)`)}${rawInp('E-Mail',d.email,`setDist('${pid}',${idx},'email',this.value)`)}<button class="danger" onclick="delDist('${pid}',${idx})">Entfernen</button></div>`}
+function addProject(){state.projects.push({id:uid(),name:'',number:'',client:'',location:'',notes:'',distribution:[],standardParticipants:[],open:true});render(); toast('Neues Projekt angelegt – bitte ausfüllen und speichern.')} function setProj(id,k,v){byId(state.projects,id)[k]=v;save()} function delProj(id){state.projects=state.projects.filter(p=>p.id!==id);render()} function addDist(pid){const p=byId(state.projects,pid); p.open=true; p.distribution.push({name:'',company:'',role:'',email:''});render(); toast('Neuer Verteiler-Eintrag angelegt – bitte ausfüllen und speichern.')} function setDist(pid,i,k,v){byId(state.projects,pid).distribution[i][k]=v;save()} function delDist(pid,i){byId(state.projects,pid).distribution.splice(i,1);render()} function toggleStdPart(pid,eid){let a=byId(state.projects,pid).standardParticipants||[];a.includes(eid)?a.splice(a.indexOf(eid),1):a.push(eid);byId(state.projects,pid).standardParticipants=a;render()}
+function newInspectionStart(){page='inspections'; state.activeInspectionId=null; renderNewInspection()}
+function inspections(){if(state.activeInspectionId) return editInspection(state.activeInspectionId); document.getElementById('app').innerHTML=`<button class="big" onclick="renderNewInspection()"><span class="plus">＋</span>Neue Begehung</button><div class="card"><h2>Alle Begehungen</h2>${state.inspections.slice().reverse().map(inspectionCard).join('')||'<p class="muted">Noch keine Begehung.</p>'}</div>`}
+function inspectionCard(i){const p=byId(state.projects,i.projectId)||{};return `<details class="list-item"><summary class="emp-summary"><span>${esc(i.date)} – ${esc(p.name)||'Projekt unbekannt'}</span><span class="muted">${esc(i.topic)}</span></summary><div style="margin-top:10px"><p class="muted">Uhrzeit: ${esc(i.time)} · Witterung: ${esc(i.weather)} · Feststellungen: ${(i.findings||[]).length}</p><div class="row"><button class="secondary" onclick="openInspection('${i.id}')">Öffnen</button><button class="secondary" onclick="editInspectionDetails('${i.id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${i.id}')">🗑 Begehung löschen</button><button class="secondary" onclick="exportProtocol('${i.id}')">📄 Protokoll erstellen</button></div></div></details>`}
+function openInspection(id){state.activeInspectionId=id;page='inspections';render()}
+function deleteInspection(id){const i=byId(state.inspections,id);const p=byId(state.projects,i?.projectId)||{};if(!confirm(`Begehung vom ${i?.date||''} – ${p.name||'Projekt'} wirklich löschen?
+
+Alle zugehörigen Feststellungen und Fotos werden ebenfalls entfernt.`)) return; state.inspections=state.inspections.filter(x=>x.id!==id); if(state.activeInspectionId===id) state.activeInspectionId=null; save(); render(); toast('✅ Begehung gelöscht')}
+function toggleOtherTopic(){const sel=document.getElementById('newTopic')||document.getElementById('editTopic'); const wrap=document.getElementById('otherTopicWrap')||document.getElementById('editOtherTopicWrap'); if(!sel||!wrap) return; wrap.style.display=sel.value==='Anderes Thema'?'block':'none'}
+function renderNewInspection(){const me=state.employees[0]?.id||'';tempParts=me?[me]:[];document.getElementById('app').innerHTML=`<div class="card"><h2>Neue Begehung</h2><label>Projekt</label><select id="newProject" onchange="prefillParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="newTopic" onchange="toggleOtherTopic()"><option>Baustellenbegehung</option><option>Begleitung von Arbeiten</option><option>Kartierung</option><option>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:none"><label>Bezeichnung des Themas</label><input id="newOtherTopic" type="text" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="newDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>Uhrzeit</label><input id="newTime" type="text" value="${new Date().toTimeString().slice(0,5)}"></div><div><label>Witterung</label><input id="newWeather" type="text" placeholder="wird automatisch ermittelt"><button type="button" class="secondary" onclick="autoWeather()">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="newProtocolLead" type="text" value="${esc(state.employees[0]?.name||'')}"></div></div><label>Bemerkung</label><textarea id="newRemark"></textarea><h3>Teilnehmer</h3><div id="newParts">${employeeCheckboxes(tempParts, 'toggleNewPart(')}</div><h3>Fotos zur Begehung</h3><p class="muted">Du kannst vorhandene Dateien auswählen oder direkt mit dem iPhone ein Foto aufnehmen.</p><label>Aus Dateien / Fotomediathek auswählen</label><input type="file" accept="image/*" multiple id="inspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="inspectionCamera"><button onclick="createInspection()">Begehung anlegen</button></div>`; setTimeout(autoWeather,300)}
+let tempParts=[];function prefillParticipants(){const pid=document.getElementById('newProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])]; if(!tempParts.length && state.employees[0]) tempParts=[state.employees[0].id]; document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleNewPart(')} function toggleNewPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.indexOf(eid),1):tempParts.push(eid);document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleNewPart(')}
+
+function weatherTextFromCode(code){
+  const c=Number(code);
+  if(c===0) return 'wolkenlos';
+  if([1,2].includes(c)) return 'leicht bewölkt';
+  if(c===3) return 'bedeckt';
+  if([45,48].includes(c)) return 'neblig';
+  if([51,53,55,56,57].includes(c)) return 'Nieselregen';
+  if([61,63,65,66,67,80,81,82].includes(c)) return 'regnerisch';
+  if([71,73,75,77,85,86].includes(c)) return 'Schneefall';
+  if([95,96,99].includes(c)) return 'Gewitter';
+  return 'wechselhaft';
+}
+function setWeatherFeedback(msg, ok=true){const el=document.getElementById('weatherFeedback'); if(el){el.textContent=msg; el.style.color=ok?'#2d7a36':'#9a3b00';}}
+async function autoWeather(){ return autoWeatherFor('newWeather','weatherFeedback'); }
+async function autoWeatherFor(inputId, feedbackId){
+  const weatherInput=document.getElementById(inputId);
+  const oldFeedback=document.getElementById('weatherFeedback');
+  if(!weatherInput) return;
+  const setFb=(msg,ok=true)=>{const el=document.getElementById(feedbackId); if(el){el.textContent=msg; el.style.color=ok?'#2d7a36':'#9a3b00';} else setWeatherFeedback(msg,ok)};
+  if(!navigator.geolocation){setFb('⚠ Standortdaten werden von diesem Gerät/Browser nicht unterstützt.', false); return;}
+  weatherInput.placeholder='Witterung wird ermittelt...';
+  setFb('Standort wird abgefragt...');
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    try{
+      const lat=pos.coords.latitude.toFixed(5), lon=pos.coords.longitude.toFixed(5);
+      setFb('Wetterdaten werden geladen...');
+      const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+      const r=await fetch(url);
+      if(!r.ok) throw new Error('Wetterdienst nicht erreichbar');
+      const data=await r.json();
+      const cur=data.current||{};
+      const temp=cur.temperature_2m;
+      const wind=cur.wind_speed_10m;
+      const precip=Number(cur.precipitation||0);
+      const condition=weatherTextFromCode(cur.weather_code);
+      const rain=precip>0 ? `Niederschlag ${precip} mm` : 'trocken';
+      const parts=[];
+      if(temp!==undefined) parts.push(`${Math.round(temp)} °C`);
+      parts.push(condition);
+      parts.push(rain);
+      if(wind!==undefined) parts.push(`Wind ${Math.round(wind)} km/h`);
+      weatherInput.value=parts.join(', ');
+      setFb('✅ Witterung automatisch erfasst');
+    }catch(e){setFb('⚠ Witterung konnte nicht automatisch geladen werden. Bitte manuell eintragen.', false);}
+  }, err=>{
+    setFb('⚠ Standortfreigabe nicht erteilt oder nicht verfügbar. Bitte Witterung manuell eintragen.', false);
+  }, {enableHighAccuracy:false, timeout:10000, maximumAge:300000});
+}
+
+async function createInspection(){const projectId=document.getElementById('newProject').value;if(!projectId){alert('Bitte Projekt auswählen.');return}let topic=document.getElementById('newTopic').value;const other=document.getElementById('newOtherTopic').value.trim(); if(topic==='Anderes Thema'){ if(!other){alert('Bitte die Bezeichnung des anderen Themas eingeben.'); return;} topic=other; } const photos=[]; const files=[...document.getElementById('inspectionFiles').files,...document.getElementById('inspectionCamera').files]; for(const file of files){photos.push({name:file.name,data:await fileToData(file),caption:''})} const i={id:uid(),projectId,topic,date:document.getElementById('newDate').value,time:document.getElementById('newTime').value,weather:document.getElementById('newWeather').value,protocolLead:document.getElementById('newProtocolLead').value,remark:document.getElementById('newRemark').value,participants:[...tempParts],photos,findings:[],status:'offen'}; state.inspections.push(i); state.activeInspectionId=i.id; render(); toast('✅ Begehung erfolgreich angelegt')}
+function editInspection(id){const i=byId(state.inspections,id),p=byId(state.projects,i.projectId)||{};document.getElementById('app').innerHTML=`<div class="card"><button class="secondary" style="width:100%;margin-bottom:14px;font-weight:700;font-size:1.02rem" onclick="state.activeInspectionId=null;render()">⬅ Zur Begehungsliste</button><h2>${esc(p.name)}</h2><p class="muted">Begehung vom ${esc(i.date)} ${esc(i.time)} · ${esc(i.topic)}</p><div class="photos">${(i.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto Begehung">`).join('')}</div><div class="row"><button onclick="addFinding('${id}')">+ Feststellung hinzufügen</button><button class="secondary" onclick="editInspectionDetails('${id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${id}')">🗑 Begehung löschen</button><button class="secondary" onclick="exportProtocol('${id}')">Protokoll erstellen</button><button class="secondary" onclick="emailDraft('${id}')">E-Mail vorbereiten</button></div></div><div class="card"><h2>Feststellungen (${(i.findings||[]).length})</h2>${(i.findings||[]).map((f,idx)=>findingCard(id,f,idx)).join('')||'<p class="muted">Noch keine Feststellungen.</p>'}</div>`}
+function editInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const standard=['Baustellenbegehung','Begleitung von Arbeiten','Kartierung']; const isOther=!standard.includes(i.topic); tempParts=[...(i.participants||[])]; document.getElementById('app').innerHTML=`<div class="card"><h2>Begehung bearbeiten</h2><label>Projekt</label><select id="editProject" onchange="prefillEditParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}" ${p.id===i.projectId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="editTopic" onchange="toggleOtherTopic()"><option ${!isOther&&i.topic==='Baustellenbegehung'?'selected':''}>Baustellenbegehung</option><option ${!isOther&&i.topic==='Begleitung von Arbeiten'?'selected':''}>Begleitung von Arbeiten</option><option ${!isOther&&i.topic==='Kartierung'?'selected':''}>Kartierung</option><option ${isOther?'selected':''}>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:${isOther?'block':'none'}"><label>Bezeichnung des Themas</label><input id="editOtherTopic" type="text" value="${isOther?esc(i.topic):''}" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="editDate" type="date" value="${esc(i.date)}"></div><div><label>Uhrzeit</label><input id="editTime" type="text" value="${esc(i.time)}"></div><div><label>Witterung</label><input id="editWeather" type="text" value="${esc(i.weather)}"><button type="button" class="secondary" onclick="autoWeatherFor('editWeather','weatherFeedback')">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="editProtocolLead" type="text" value="${esc(i.protocolLead)}"></div></div><label>Bemerkung</label><textarea id="editRemark">${esc(i.remark)}</textarea><h3>Teilnehmer</h3><div id="newParts">${employeeCheckboxes(tempParts,'toggleEditPart(')}</div><h3>Fotos zur Begehung</h3><div class="photos">${(i.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removeInspectionPhoto('${id}',${ix})">Foto löschen</button></div>`).join('')}</div><label>Aus Dateien / Fotomediathek hinzufügen</label><input type="file" accept="image/*" multiple id="editInspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="editInspectionCamera"><div class="row"><button onclick="saveInspectionDetails('${id}')">Begehung speichern</button><button class="secondary" onclick="openInspection('${id}')">Abbrechen</button></div></div>`}
+function prefillEditParticipants(){const pid=document.getElementById('editProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])]; if(!tempParts.length && state.employees[0]) tempParts=[state.employees[0].id]; document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
+function toggleEditPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.indexOf(eid),1):tempParts.push(eid);document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
+async function saveInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const projectId=document.getElementById('editProject').value; if(!projectId){alert('Bitte Projekt auswählen.');return} let topic=document.getElementById('editTopic').value; const other=(document.getElementById('editOtherTopic')?.value||'').trim(); if(topic==='Anderes Thema'){ if(!other){alert('Bitte die Bezeichnung des anderen Themas eingeben.'); return;} topic=other;} i.projectId=projectId; i.topic=topic; i.date=document.getElementById('editDate').value; i.time=document.getElementById('editTime').value; i.weather=document.getElementById('editWeather').value; i.protocolLead=document.getElementById('editProtocolLead').value; i.remark=document.getElementById('editRemark').value; i.participants=[...tempParts]; i.photos=i.photos||[]; const files=[...document.getElementById('editInspectionFiles').files,...document.getElementById('editInspectionCamera').files]; for(const file of files){i.photos.push({name:file.name,data:await fileToData(file),caption:''})} state.activeInspectionId=id; save(); render(); toast('✅ Begehung gespeichert')}
+function removeInspectionPhoto(id,ix){const i=byId(state.inspections,id); if(!i) return; i.photos.splice(ix,1); save(); editInspectionDetails(id)}
+function findingCard(iid,f,idx){return `<div class="list-item"><b>Feststellung ${idx+1}: ${esc(f.title)||'ohne Titel'}</b><br><span class="muted">${esc(f.category)} · ${esc(f.status)} · Frist: ${esc(f.deadline)}</span><p>${esc(f.measure)}</p><div class="photos">${(f.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto">`).join('')}</div><div class="row"><button class="secondary" onclick="editFinding('${iid}','${f.id}')">✏ Bearbeiten</button><button class="danger" onclick="delFinding('${iid}','${f.id}')">Löschen</button></div></div>`}
+function addFinding(iid){const i=byId(state.inspections,iid);i.findings.push({id:uid(),category:'Bodenschutz',title:'',measure:'',responsible:'',deadline:'',status:'Offen',note:'',photos:[]});editFinding(iid,i.findings.at(-1).id)}
+function editFinding(iid,fid){const f=byId(byId(state.inspections,iid).findings,fid);document.getElementById('app').innerHTML=`<div class="card"><h2>Feststellung bearbeiten</h2><label>Kategorie</label><select id="cat"><option>Bodenschutz</option><option>Gewässerschutz</option><option>Artenschutz</option><option>Baumschutz</option><option>Immissionsschutz</option><option>Sonstiges</option></select>${rawTa('Feststellung',f.title,'')}${rawTa('Maßnahme',f.measure,'')}<div class="grid">${rawInp('Verantwortlich',f.responsible,'')}${rawInp('Frist',f.deadline,'date')}<div><label>Status</label><select id="stat"><option>Offen</option><option>In Bearbeitung</option><option>Erledigt</option><option>Kontrolle erforderlich</option></select></div></div>${rawTa('Interne Notiz',f.note,'')}<label>Fotos hinzufügen</label><input type="file" accept="image/*" multiple capture="environment" id="photos"><div class="photos">${(f.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removePhoto('${iid}','${fid}',${ix})">Foto löschen</button></div>`).join('')}</div><div class="row"><button onclick="saveFinding('${iid}','${fid}')">Speichern</button><button class="secondary" onclick="render()">Zurück</button></div></div>`;document.getElementById('cat').value=f.category;document.getElementById('stat').value=f.status}
+async function saveFinding(iid,fid){const f=byId(byId(state.inspections,iid).findings,fid);f.category=document.getElementById('cat').value;const inputs=document.querySelectorAll('#app textarea,#app input');f.title=inputs[0].value;f.measure=inputs[1].value;f.responsible=inputs[2].value;f.deadline=inputs[3].value;f.status=document.getElementById('stat').value;f.note=inputs[4].value;const files=[...document.getElementById('photos').files];for(const file of files){f.photos.push({name:file.name,data:await fileToData(file),caption:''})}render(); const nr=(byId(state.inspections,iid).findings.findIndex(x=>x.id===fid)+1); toast('✅ Feststellung Nr. '+nr+' gespeichert')}
+function removePhoto(iid,fid,ix){byId(byId(state.inspections,iid).findings,fid).photos.splice(ix,1);editFinding(iid,fid)} function delFinding(iid,fid){const i=byId(state.inspections,iid);i.findings=i.findings.filter(f=>f.id!==fid);render()} function fileToData(file){return new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file)})}
+async function exportProtocol(iid){
+  const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
+  let ai=await generateTexts(i,p);
+  let html=protocolHtml(i,p,ai);
+  const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.doc`;
+  downloadBlob(html,fileName,'application/msword');
+
+  setTimeout(()=>{
+    const mailTo=(state.settings.workMail||'').trim();
+    const msg=mailTo
+      ? `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail an ${mailTo} vorbereitet werden?\n\nHinweis: Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`
+      : `Das Protokoll wurde erstellt und heruntergeladen.\n\nSoll jetzt eine E-Mail vorbereitet werden?\n\nHinweis: Bitte hinterlege unter Büro → API / E-Mail deine Arbeits-E-Mail. Die Word-Datei musst du anschließend im Mailprogramm manuell anhängen.`;
+    if(confirm(msg)) emailDraft(iid,fileName);
+  },600);
+}
+async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>`Bild ${pi+1}: Fotodokumentation zu Feststellung ${fi+1}.`))}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
+
+Schreibe sachlich, fachlich korrekt und präzise.
+
+ALLGEMEINE REGELN
+
+- kurze und klare Sätze
+- keine Floskeln
+- keine Wiederholungen
+- keine unnötigen Einleitungen
+- keine Ausschmückungen
+- keine Vermutungen
+- objektive und neutrale Sprache
+- fachlicher Stil einer Umweltfachlichen Bauüberwachung
+- maximal 2 bis 4 Sätze pro Feststellung
+- Maßnahmen konkret benennen
+- Fristen und Verantwortlichkeiten nennen, sofern vorhanden
+- auf den Punkt formulieren
+- keine KI-typischen Formulierungen
+
+NICHT SCHREIBEN
+
+"Im Rahmen der durchgeführten Begehung konnte festgestellt werden, dass ..."
+"Es wurde beobachtet, dass ..."
+"Dabei zeigte sich, dass ..."
+"Während der Begehung wurde festgestellt ..."
+"Im Zuge der Maßnahme konnte erkannt werden ..."
+"Vor Ort konnte beobachtet werden ..."
+
+SONDERN
+
+"Im Bereich Bau-km 12,4 wurden Bodenmieten außerhalb der vorgesehenen Lagerfläche festgestellt."
+"Der Reptilienschutzzaun weist auf einer Länge von ca. 5 m Beschädigungen auf."
+"Innerhalb des Baufeldes wurden Ablagerungen von Baustoffen festgestellt."
+"Der Große Wiesenknopf wurde auf den Flächen 9721 und 9753 nachgewiesen."
+
+MÄNGELKASTEN
+
+Erstelle für jede Feststellung einen kurzen Stichpunkt.
+
+Regeln:
+
+- maximal ein Satz
+- keine Erläuterungen
+- keine Bewertungen
+- keine Wiederholungen
+- nur das Wesentliche
+
+Beispiel:
+
+- Reptilienschutzzaun im Bereich Maststandort 5 beschädigt.
+- Bodenlagerung außerhalb der vorgesehenen Lagerfläche.
+- Amphibienschutzzaun weist mehrere Öffnungen auf.
+
+FLIESSTEXT
+
+Zu jeder Feststellung einen kurzen fachlichen Absatz.
+
+Aufbau:
+
+1. Feststellung
+2. fachliche Bewertung
+3. erforderliche Maßnahme
+
+Regeln:
+
+- maximal 2 bis 4 Sätze
+- keine Wiederholung des Mängelkastens
+- sachlich und prägnant
+- keine allgemeinen Einleitungen
+
+Beispiel:
+
+Im Bereich Maststandort 5 wurde eine Beschädigung des Reptilienschutzzauns festgestellt. Die Funktion des Zauns ist dadurch eingeschränkt. Der Zaun ist zeitnah fachgerecht instand zu setzen.
+
+FOTODOKUMENTATION
+
+Erstelle für jedes Foto eine eigene Bildunterschrift.
+
+Regeln:
+
+- maximal ein Satz
+- sachlich und kurz
+- keine Floskeln
+- keine Wiederholung der gesamten Feststellung
+- das auf dem Foto erkennbare Merkmal benennen
+- möglichst Orts- oder Maßnahmenbezug herstellen
+- bei mehreren Fotos einer Feststellung unterschiedliche Bildunterschriften verwenden
+
+NICHT SCHREIBEN
+
+"Fotodokumentation der Feststellung."
+"Abbildung der Situation."
+"Übersicht über die Baustelle."
+"Dokumentation des Sachverhalts."
+
+SONDERN
+
+"Beschädigter Reptilienschutzzaun im Bereich Maststandort 5."
+"Bodenlagerung außerhalb der ausgewiesenen Lagerfläche."
+"Großer Wiesenknopf auf Fläche 9753."
+"Kontrollierter Amphibienschutzzaun entlang des Baufeldes."
+"Umgesetzte Schlingnatter innerhalb der CEF-Fläche."
+
+WICHTIG
+
+Die Texte sollen so wirken, als wären sie von einem erfahrenen Umweltfachlichen Bauüberwacher erstellt worden.
+
+Die Formulierungen sollen kurz, fachlich und direkt sein.
+
+Antworte ausschließlich als gültiges JSON im folgenden Format:
+
+{
+  "bullets": [],
+  "texts": [],
+  "captions": []
+}
+
+Projekt:
+${p.name}
+
+Thema:
+${i.topic}
+
+Feststellungen:
+${JSON.stringify(
+  i.findings.map(f => ({
+    category: f.category,
+    feststellung: f.title,
+    massnahme: f.measure,
+    verantwortlich: f.responsible,
+    frist: f.deadline,
+    status: f.status,
+    anzahlFotos: (f.photos || []).length
+  }))
+)}`; const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:state.settings.model||'gpt-4o-mini',messages:[{role:'system',content:'Antworte ausschließlich mit gültigem JSON.'},{role:'user',content:prompt}],temperature:0.2})}); const data=await r.json(); const txt=data.choices?.[0]?.message?.content||''; return JSON.parse(txt.replace(/^```json|```$/g,'')); }catch(e){alert('KI konnte nicht genutzt werden. Es wird ein einfacher Standardtext erstellt.'); return fallback}}
+function protocolHtml(i,p,ai){let captionIndex=0;let figIndex=1;return `<!doctype html><html><head><meta charset='utf-8'><style>body{font-family:Arial;font-size:11pt;text-align:justify;line-height:1.4}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px;vertical-align:top}.no td{border:0}.red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid}h2{font-size:16pt;font-weight:bold;page-break-after:avoid}h3{font-size:13pt;font-weight:bold;page-break-after:avoid}h4{font-size:11pt;font-weight:bold;page-break-after:avoid}.finding-block{page-break-inside:avoid;margin-bottom:12pt}.photo-block{page-break-inside:avoid;margin-bottom:14pt;text-align:left}.photo-block p{margin:4pt 0}img{width:10.65cm;height:8.15cm;max-width:10.65cm;max-height:8.15cm;object-fit:contain;border:1px solid #999;page-break-inside:avoid}.signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid}.signature-block td{border:0;padding:6pt;vertical-align:bottom}.signature-line{border-bottom:1px solid #000;height:34pt}.signature-label{font-size:9pt;color:#333}.signature-name{font-weight:bold;margin-top:4pt}.signature-role{font-size:10pt;color:#333}.signature-place{height:34pt;border-bottom:1px solid #000}</style></head><body><h2>Begehungsprotokoll</h2><table><tr><td><b>Projekt/Bauvorhaben:</b></td><td>${esc(p.name)}</td></tr><tr><td><b>Themen:</b></td><td>${esc(i.topic)}</td></tr><tr><td><b>Datum/Zeit:</b></td><td>${esc(i.date)} ${esc(i.time)}</td></tr><tr><td><b>Ort/Raum/Strecke:</b></td><td>${esc(p.location)}</td></tr><tr><td><b>Anwesende/Teilnehmer:</b></td><td>${i.participants.map(id=>esc(byId(state.employees,id)?.name||id)).join('<br>')}</td></tr><tr><td><b>Witterung bei Begehung:</b></td><td>${esc(i.weather)}</td></tr><tr><td><b>Protokollführung:</b></td><td>${esc(i.protocolLead)}</td></tr><tr><td><b>Bemerkung:</b></td><td>${esc(i.remark)}</td></tr></table><h3>1. Zusammenfassung:</h3><p>Die Firma ${esc(state.company.name||'')} wurde beauftragt das Projekt ${esc(p.name)} als umweltfachliche Bauüberwachung zu betreuen. Im Zuge dessen fand am ${esc(i.date)} eine umweltfachliche Begehung der Baustelle statt.</p><h3>2. Ergebnis:</h3><div class='red'>${ai.bullets?.length?'<ul>'+ai.bullets.map(b=>`<li>${esc(b)}</li>`).join('')+'</ul>':'Im Zuge der Begehung wurden keine umweltfachlichen Mängel festgestellt.'}</div>${(ai.texts||[]).map(t=>`<p>${esc(t)}</p>`).join('')}<h3>3. Weiterer Verlauf:</h3><p>Im weiteren Verlauf der Baumaßnahme finden weiterhin regelmäßige Begehungen der Baustelle durch die Umweltfachliche Bauüberwachung statt.</p><table class='signature-block'><tr><td style='width:45%;padding-right:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Ort, Datum</div></td><td style='width:10%'>&nbsp;</td><td style='width:45%;padding-left:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Umweltfachliche Bauüberwachung</div></td></tr></table><h3>Dieses Protokoll wurde verteilt an:</h3><table>${(p.distribution||[]).map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.company)}</td><td>${esc(d.role)}</td><td>${esc(d.email)}</td></tr>`).join('')}</table><h3>4. Fotodokumentation</h3>${(i.photos||[]).length?`<h4>Fotos zur Begehung</h4>${(i.photos||[]).map((ph,pi)=>`<div class='photo-block'><p><img src='${ph.data}' width='403' height='308' style='width:10.65cm;height:8.15cm;object-fit:contain;border:1px solid #999'></p><p><i>Abbildung ${figIndex++}: Übersichtsfoto zur Begehung. (Eigene Aufnahme am ${esc(i.date)})</i></p></div>`).join('')}`:''}${i.findings.map((f,fi)=>`<div class='finding-block'><h4>Feststellung ${fi+1}: ${esc(f.title)}</h4>${(f.photos||[]).map(ph=>`<div class='photo-block'><p><img src='${ph.data}' width='403' height='308' style='width:10.65cm;height:8.15cm;object-fit:contain;border:1px solid #999'></p><p><i>Abbildung ${figIndex++}: ${esc((ai.captions||[])[captionIndex++]||'Fotodokumentation zur Feststellung.')} (Eigene Aufnahme am ${esc(i.date)})</i></p></div>`).join('')}</div>`).join('')}</body></html>`}
+function emailDraft(iid,fileName=''){
+  const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
+  const to=state.settings.workMail||'';
+  const subject='Begehungsprotokoll '+(p.name||'')+' vom '+(i.date||'');
+  const body=[
+    'Hallo,',
+    '',
+    'anbei übersende ich das Begehungsprotokoll zur Begehung vom '+(i.date||'')+'.',
+    '',
+    fileName ? 'Dateiname: '+fileName : '',
+    '',
+    'Hinweis: Die Word-Datei wurde bereits heruntergeladen und muss dieser E-Mail noch manuell angehängt werden.',
+    '',
+    'Viele Grüße'
+  ].filter(line=>line!==null).join('\n');
+  location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function exportData(){downloadBlob(JSON.stringify(state,null,2),'ubb_daten.json','application/json')} async function importData(file){if(!file)return;state=JSON.parse(await file.text());save();render()} function downloadBlob(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function employeeCheckboxes(selected,prefix){return state.employees.map(e=>`<label class="pill"><input type="checkbox" ${selected.includes(e.id)?'checked':''} onchange="${prefix}'${e.id}')"> ${esc(e.name||'Mitarbeiter')}</label>`).join('')||'<p class="muted">Noch keine Mitarbeiter angelegt.</p>'}
+function inp(label,path,type='text'){return `<label>${label}</label><input type="${type}" data-path="${path}" value="${esc(path.split('.').reduce((o,k)=>o?.[k],state))}">`} function ta(label,path){return `<label>${label}</label><textarea data-path="${path}">${esc(path.split('.').reduce((o,k)=>o?.[k],state))}</textarea>`} function rawInp(label,val,onchange){let type=onchange==='date'?'date':'text', oc=onchange&&onchange!=='date'?`oninput="${onchange}"`:'';return `<div><label>${label}</label><input type="${type}" value="${esc(val)}" ${oc}></div>`} function rawTa(label,val,onchange){let oc=onchange?`oninput="${onchange}"`:'';return `<label>${label}</label><textarea ${oc}>${esc(val)}</textarea>`}
+function bindInputs(){document.querySelectorAll('[data-path]').forEach(el=>el.oninput=()=>{let parts=el.dataset.path.split('.'),o=state;while(parts.length>1)o=o[parts.shift()];o[parts[0]]=el.value;save()})}
+render();
+</script>
+</body>
+</html>
