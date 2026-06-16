@@ -136,8 +136,61 @@ async function saveInspectionDetails(id){const i=byId(state.inspections,id); if(
 function removeInspectionPhoto(id,ix){const i=byId(state.inspections,id); if(!i) return; i.photos.splice(ix,1); save(); editInspectionDetails(id)}
 function findingCard(iid,f,idx){return `<div class="list-item"><b>Feststellung ${idx+1}: ${esc(f.title)||'ohne Titel'}</b><br><span class="muted">${esc(f.category)} · ${esc(f.status)} · Frist: ${esc(f.deadline)}</span><p>${esc(f.measure)}</p><div class="photos">${(f.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto">`).join('')}</div><div class="row"><button class="secondary" onclick="editFinding('${iid}','${f.id}')">✏ Bearbeiten</button><button class="danger" onclick="delFinding('${iid}','${f.id}')">Löschen</button></div></div>`}
 function addFinding(iid){const i=byId(state.inspections,iid);i.findings.push({id:uid(),category:'Bodenschutz',title:'',measure:'',responsible:'',deadline:'',status:'Offen',note:'',photos:[]});editFinding(iid,i.findings.at(-1).id)}
-function editFinding(iid,fid){const f=byId(byId(state.inspections,iid).findings,fid);document.getElementById('app').innerHTML=`<div class="card"><h2>Feststellung bearbeiten</h2><label>Kategorie</label><select id="cat"><option>Bodenschutz</option><option>Gewässerschutz</option><option>Artenschutz</option><option>Baumschutz</option><option>Immissionsschutz</option><option>Sonstiges</option></select>${rawTa('Feststellung',f.title,'')}${rawTa('Maßnahme',f.measure,'')}<div class="grid">${rawInp('Verantwortlich',f.responsible,'')}${rawInp('Frist',f.deadline,'date')}<div><label>Status</label><select id="stat"><option>Offen</option><option>In Bearbeitung</option><option>Erledigt</option><option>Kontrolle erforderlich</option></select></div></div>${rawTa('Interne Notiz',f.note,'')}<label>Fotos hinzufügen</label><input type="file" accept="image/*" multiple capture="environment" id="photos"><div class="photos">${(f.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removePhoto('${iid}','${fid}',${ix})">Foto löschen</button></div>`).join('')}</div><div class="row"><button onclick="saveFinding('${iid}','${fid}')">Speichern</button><button class="secondary" onclick="render()">Zurück</button></div></div>`;document.getElementById('cat').value=f.category;document.getElementById('stat').value=f.status}
-async function saveFinding(iid,fid){const f=byId(byId(state.inspections,iid).findings,fid);f.category=document.getElementById('cat').value;const inputs=document.querySelectorAll('#app textarea,#app input');f.title=inputs[0].value;f.measure=inputs[1].value;f.responsible=inputs[2].value;f.deadline=inputs[3].value;f.status=document.getElementById('stat').value;f.note=inputs[4].value;const files=[...document.getElementById('photos').files];for(const file of files){f.photos.push({name:file.name,data:await fileToData(file),caption:''})}render(); const nr=(byId(state.inspections,iid).findings.findIndex(x=>x.id===fid)+1); toast('✅ Feststellung Nr. '+nr+' gespeichert')}
+function editFinding(iid,fid){
+  const f=byId(byId(state.inspections,iid).findings,fid);
+  document.getElementById('app').innerHTML=`<div class="card">
+    <h2>Feststellung bearbeiten</h2>
+    <label>Kategorie</label>
+    <select id="cat">
+      <option>Bodenschutz</option>
+      <option>Gewässerschutz</option>
+      <option>Artenschutz</option>
+      <option>Baumschutz</option>
+      <option>Immissionsschutz</option>
+      <option>Sonstiges</option>
+    </select>
+    <label>Feststellung</label>
+    <textarea id="findingTitle">${esc(f.title)}</textarea>
+    <label>Maßnahme</label>
+    <textarea id="findingMeasure">${esc(f.measure)}</textarea>
+    <div class="grid">
+      <div><label>Verantwortlich</label><input id="findingResponsible" type="text" value="${esc(f.responsible)}"></div>
+      <div><label>Frist</label><input id="findingDeadline" type="date" value="${esc(f.deadline)}"></div>
+      <div><label>Status</label><select id="stat"><option>Offen</option><option>In Bearbeitung</option><option>Erledigt</option><option>Kontrolle erforderlich</option></select></div>
+    </div>
+    <label>Interne Notiz</label>
+    <textarea id="findingNote">${esc(f.note)}</textarea>
+    <label>Fotos hinzufügen</label>
+    <input type="file" accept="image/*" multiple capture="environment" id="photos">
+    <div class="photos">${(f.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removePhoto('${iid}','${fid}',${ix})">Foto löschen</button></div>`).join('')}</div>
+    <div class="row"><button type="button" onclick="saveFinding('${iid}','${fid}')">Speichern</button><button type="button" class="secondary" onclick="render()">Zurück</button></div>
+  </div>`;
+  document.getElementById('cat').value=f.category;
+  document.getElementById('stat').value=f.status;
+}
+async function saveFinding(iid,fid){
+  const inspection=byId(state.inspections,iid);
+  const f=byId(inspection.findings,fid);
+  if(!f){alert('Feststellung nicht gefunden.');return;}
+  f.category=document.getElementById('cat')?.value||'';
+  f.title=document.getElementById('findingTitle')?.value||'';
+  f.measure=document.getElementById('findingMeasure')?.value||'';
+  f.responsible=document.getElementById('findingResponsible')?.value||'';
+  f.deadline=document.getElementById('findingDeadline')?.value||'';
+  f.status=document.getElementById('stat')?.value||'Offen';
+  f.note=document.getElementById('findingNote')?.value||'';
+  f.photos=f.photos||[];
+  const photoInput=document.getElementById('photos');
+  const files=photoInput ? [...photoInput.files] : [];
+  for(const file of files){
+    f.photos.push({name:file.name,data:await fileToData(file),caption:''});
+  }
+  save();
+  state.activeInspectionId=iid;
+  render();
+  const nr=(inspection.findings.findIndex(x=>x.id===fid)+1);
+  toast('✅ Feststellung Nr. '+nr+' gespeichert');
+}
 function removePhoto(iid,fid,ix){byId(byId(state.inspections,iid).findings,fid).photos.splice(ix,1);editFinding(iid,fid)} function delFinding(iid,fid){const i=byId(state.inspections,iid);i.findings=i.findings.filter(f=>f.id!==fid);render()} function fileToData(file){return new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file)})}
 async function exportProtocol(iid){
   const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
