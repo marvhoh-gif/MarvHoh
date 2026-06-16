@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UBB Begehungsprotokoll 0.4.15</title>
+  <title>UBB Begehungsprotokoll 0.4.17</title>
   <style>
     :root{--bg:#f6f7f9;--card:#fff;--text:#15171a;--muted:#68707c;--accent:#1976d2;--danger:#c62828;--line:#d9dde3;--soft:#eef5ff}
     *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
@@ -29,7 +29,20 @@ if(state.settings && state.settings.apiKeySaved===undefined) state.settings.apiK
 let page='home';
 let flashTarget={};
 function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}}
-function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+let storageWarningShown=false;
+function save(){
+  try{
+    localStorage.setItem(KEY,JSON.stringify(state));
+    return true;
+  }catch(e){
+    console.error('Lokales Speichern fehlgeschlagen:', e);
+    if(!storageWarningShown){
+      storageWarningShown=true;
+      alert('Die Daten konnten auf diesem Gerät nicht vollständig gespeichert werden. Häufige Ursache sind zu große Fotos im Browser-Speicher. Neue Fotos werden ab jetzt automatisch verkleinert. Bitte ggf. sehr große/alte Fotos entfernen oder die GitHub-Datensicherung nutzen.');
+    }
+    return false;
+  }
+}
 function saveNow(msg='✅ Gespeichert.'){save(); toast(msg)}
 function saveArea(key,msg){save(); flashTarget[key]=msg; render(); setTimeout(()=>{delete flashTarget[key]; render()},2200)}
 function toast(msg){const d=document.createElement('div');d.className='success';d.textContent=msg;document.querySelector('.wrap').prepend(d);setTimeout(()=>d.remove(),1800)}
@@ -138,7 +151,15 @@ function toggleEditPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.
 async function saveInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const projectId=document.getElementById('editProject').value; if(!projectId){alert('Bitte Projekt auswählen.');return} let topic=document.getElementById('editTopic').value; const other=(document.getElementById('editOtherTopic')?.value||'').trim(); if(topic==='Anderes Thema'){ if(!other){alert('Bitte die Bezeichnung des anderen Themas eingeben.'); return;} topic=other;} i.projectId=projectId; i.topic=topic; i.date=document.getElementById('editDate').value; i.time=document.getElementById('editTime').value; i.weather=document.getElementById('editWeather').value; i.protocolLead=document.getElementById('editProtocolLead').value; i.remark=document.getElementById('editRemark').value; i.participants=[...tempParts]; i.photos=i.photos||[]; const files=[...document.getElementById('editInspectionFiles').files,...document.getElementById('editInspectionCamera').files]; for(const file of files){i.photos.push({name:file.name,data:await fileToData(file),caption:''})} state.activeInspectionId=id; save(); render(); toast('✅ Begehung gespeichert')}
 function removeInspectionPhoto(id,ix){const i=byId(state.inspections,id); if(!i) return; i.photos.splice(ix,1); save(); editInspectionDetails(id)}
 function findingCard(iid,f,idx){return `<div class="list-item"><b>Feststellung ${idx+1}: ${esc(f.title)||'ohne Titel'}</b><br><span class="muted">${esc(f.category)} · ${esc(f.status)} · Frist: ${esc(f.deadline)}</span><p>${esc(f.measure)}</p><div class="photos">${(f.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto">`).join('')}</div><div class="row"><button class="secondary" onclick="editFinding('${iid}','${f.id}')">✏ Bearbeiten</button><button class="danger" onclick="delFinding('${iid}','${f.id}')">Löschen</button></div></div>`}
-function addFinding(iid){const i=byId(state.inspections,iid);i.findings.push({id:uid(),category:'Bodenschutz',title:'',measure:'',responsible:'',deadline:'',status:'Offen',note:'',photos:[]});editFinding(iid,i.findings.at(-1).id)}
+function addFinding(iid){
+  const i=byId(state.inspections,iid);
+  if(!i) return;
+  const f={id:uid(),category:'Bodenschutz',title:'',measure:'',responsible:'',deadline:'',status:'Offen',note:'',photos:[]};
+  i.findings=i.findings||[];
+  i.findings.push(f);
+  save();
+  editFinding(iid,f.id);
+}
 function editFinding(iid,fid){
   const f=byId(byId(state.inspections,iid).findings,fid);
   document.getElementById('app').innerHTML=`<div class="card">
@@ -166,35 +187,99 @@ function editFinding(iid,fid){
     <label>Fotos hinzufügen</label>
     <input type="file" accept="image/*" multiple capture="environment" id="photos">
     <div class="photos">${(f.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removePhoto('${iid}','${fid}',${ix})">Foto löschen</button></div>`).join('')}</div>
-    <div class="row"><button type="button" onclick="saveFinding('${iid}','${fid}')">Speichern</button><button type="button" class="secondary" onclick="render()">Zurück</button></div>
+    <div class="row"><button type="button" id="saveFindingButton" onclick="saveFinding('${iid}','${fid}',this)">Speichern</button><button type="button" class="secondary" onclick="openInspection('${iid}')">Zurück</button></div>
   </div>`;
   document.getElementById('cat').value=f.category;
   document.getElementById('stat').value=f.status;
 }
-async function saveFinding(iid,fid){
-  const inspection=byId(state.inspections,iid);
-  const f=byId(inspection.findings,fid);
-  if(!f){alert('Feststellung nicht gefunden.');return;}
-  f.category=document.getElementById('cat')?.value||'';
-  f.title=document.getElementById('findingTitle')?.value||'';
-  f.measure=document.getElementById('findingMeasure')?.value||'';
-  f.responsible=document.getElementById('findingResponsible')?.value||'';
-  f.deadline=document.getElementById('findingDeadline')?.value||'';
-  f.status=document.getElementById('stat')?.value||'Offen';
-  f.note=document.getElementById('findingNote')?.value||'';
-  f.photos=f.photos||[];
-  const photoInput=document.getElementById('photos');
-  const files=photoInput ? [...photoInput.files] : [];
-  for(const file of files){
-    f.photos.push({name:file.name,data:await fileToData(file),caption:''});
+async function saveFinding(iid,fid,btn){
+  const button=btn||document.getElementById('saveFindingButton');
+  const originalText=button ? button.textContent : '';
+  try{
+    if(button){button.disabled=true; button.textContent='Speichere …';}
+    const inspection=byId(state.inspections,iid);
+    if(!inspection){alert('Begehung nicht gefunden.');return;}
+    inspection.findings=inspection.findings||[];
+    const f=byId(inspection.findings,fid);
+    if(!f){alert('Feststellung nicht gefunden.');return;}
+    f.category=document.getElementById('cat')?.value||'';
+    f.title=document.getElementById('findingTitle')?.value||'';
+    f.measure=document.getElementById('findingMeasure')?.value||'';
+    f.responsible=document.getElementById('findingResponsible')?.value||'';
+    f.deadline=document.getElementById('findingDeadline')?.value||'';
+    f.status=document.getElementById('stat')?.value||'Offen';
+    f.note=document.getElementById('findingNote')?.value||'';
+    f.photos=f.photos||[];
+
+    const photoInput=document.getElementById('photos');
+    const files=photoInput && photoInput.files ? Array.from(photoInput.files) : [];
+    for(let idx=0; idx<files.length; idx++){
+      if(button) button.textContent='Foto '+(idx+1)+'/'+files.length+' wird gespeichert …';
+      f.photos.push({name:files[idx].name||('foto_'+(idx+1)+'.jpg'),data:await fileToData(files[idx]),caption:''});
+    }
+
+    if(photoInput) photoInput.value='';
+    save();
+    state.activeInspectionId=iid;
+    render();
+    const nr=(inspection.findings.findIndex(x=>x.id===fid)+1);
+    toast('✅ Feststellung Nr. '+nr+' gespeichert');
+  }catch(err){
+    console.error('Feststellung konnte nicht gespeichert werden:', err);
+    alert('Feststellung konnte nicht gespeichert werden. Bitte versuche es erneut. Falls Fotos ausgewählt waren, war vermutlich eine Bilddatei zu groß oder konnte auf dem Handy nicht verarbeitet werden.');
+  }finally{
+    if(button){button.disabled=false; button.textContent=originalText||'Speichern';}
   }
-  save();
-  state.activeInspectionId=iid;
-  render();
-  const nr=(inspection.findings.findIndex(x=>x.id===fid)+1);
-  toast('✅ Feststellung Nr. '+nr+' gespeichert');
 }
-function removePhoto(iid,fid,ix){byId(byId(state.inspections,iid).findings,fid).photos.splice(ix,1);editFinding(iid,fid)} function delFinding(iid,fid){const i=byId(state.inspections,iid);i.findings=i.findings.filter(f=>f.id!==fid);render()} function fileToData(file){return new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file)})}
+function removePhoto(iid,fid,ix){byId(byId(state.inspections,iid).findings,fid).photos.splice(ix,1);save();editFinding(iid,fid)} function delFinding(iid,fid){const i=byId(state.inspections,iid);i.findings=i.findings.filter(f=>f.id!==fid);save();render()}
+function readFileAsDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(r.result);
+    r.onerror=()=>reject(new Error('Datei konnte nicht gelesen werden.'));
+    r.readAsDataURL(file);
+  });
+}
+async function fileToData(file){
+  const original=await readFileAsDataURL(file);
+  if(!file || !String(file.type||'').startsWith('image/')) return original;
+  try{
+    const img=await new Promise((resolve,reject)=>{
+      const image=new Image();
+      image.onload=()=>resolve(image);
+      image.onerror=()=>reject(new Error('Bild konnte nicht geladen werden.'));
+      image.src=original;
+    });
+    const w=img.naturalWidth||img.width;
+    const h=img.naturalHeight||img.height;
+    if(!w || !h) return original;
+    const maxEdge=1600;
+    const scale=Math.min(1, maxEdge/Math.max(w,h));
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.max(1, Math.round(w*scale));
+    canvas.height=Math.max(1, Math.round(h*scale));
+    const ctx=canvas.getContext('2d');
+    if(!ctx) return original;
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const compressed=await new Promise(resolve=>{
+      if(canvas.toBlob){
+        canvas.toBlob(blob=>{
+          if(!blob){resolve(null);return;}
+          const r=new FileReader();
+          r.onload=()=>resolve(r.result);
+          r.onerror=()=>resolve(null);
+          r.readAsDataURL(blob);
+        },'image/jpeg',0.82);
+      }else{
+        try{resolve(canvas.toDataURL('image/jpeg',0.82));}catch(e){resolve(null);}
+      }
+    });
+    return compressed || original;
+  }catch(e){
+    console.warn('Bildkomprimierung fehlgeschlagen, nutze Original:', e);
+    return original;
+  }
+}
 async function exportProtocol(iid){
   const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
   let ai=await generateTexts(i,p);
@@ -203,7 +288,7 @@ async function exportProtocol(iid){
   downloadBlob(html,fileName,'application/msword');
   toast('✅ Protokoll wurde heruntergeladen.');
 }
-async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>`Bild ${pi+1}: Fotodokumentation zu Feststellung ${fi+1}.`))}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
+async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>f.title||f.measure||`Feststellung ${fi+1}`))}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
 
 Schreibe sachlich, fachlich korrekt und präzise.
 
@@ -339,17 +424,147 @@ ${JSON.stringify(
     anzahlFotos: (f.photos || []).length
   }))
 )}`; const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:state.settings.model||'gpt-4o-mini',messages:[{role:'system',content:'Antworte ausschließlich mit gültigem JSON.'},{role:'user',content:prompt}],temperature:0.2})}); const data=await r.json(); const txt=data.choices?.[0]?.message?.content||''; return JSON.parse(txt.replace(/^```json|```$/g,'')); }catch(e){alert('KI konnte nicht genutzt werden. Es wird ein einfacher Standardtext erstellt.'); return fallback}}
-function protocolHtml(i,p,ai){let captionIndex=0;let figIndex=1;return `<!doctype html><html><head><meta charset='utf-8'><style>body{font-family:Arial;font-size:11pt;text-align:justify;line-height:1.4}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px;vertical-align:top}.no td{border:0}.red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid}h2{font-size:16pt;font-weight:bold;page-break-after:avoid}h3{font-size:13pt;font-weight:bold;page-break-after:avoid}h4{font-size:11pt;font-weight:bold;page-break-after:avoid}.finding-block{page-break-inside:avoid;margin-bottom:12pt}.photo-block{page-break-inside:avoid;margin-bottom:14pt;text-align:left}.photo-block p{margin:4pt 0}img{width:10.65cm;height:8.15cm;max-width:10.65cm;max-height:8.15cm;object-fit:contain;border:1px solid #999;page-break-inside:avoid}.signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid}.signature-block td{border:0;padding:6pt;vertical-align:bottom}.signature-line{border-bottom:1px solid #000;height:34pt}.signature-label{font-size:9pt;color:#333}.signature-name{font-weight:bold;margin-top:4pt}.signature-role{font-size:10pt;color:#333}.signature-place{height:34pt;border-bottom:1px solid #000}</style></head><body><h2>Begehungsprotokoll</h2><table><tr><td><b>Projekt/Bauvorhaben:</b></td><td>${esc(p.name)}</td></tr><tr><td><b>Themen:</b></td><td>${esc(i.topic)}</td></tr><tr><td><b>Datum/Zeit:</b></td><td>${esc(i.date)} ${esc(i.time)}</td></tr><tr><td><b>Ort/Raum/Strecke:</b></td><td>${esc(p.location)}</td></tr><tr><td><b>Anwesende/Teilnehmer:</b></td><td>${i.participants.map(id=>esc(byId(state.employees,id)?.name||id)).join('<br>')}</td></tr><tr><td><b>Witterung bei Begehung:</b></td><td>${esc(i.weather)}</td></tr><tr><td><b>Protokollführung:</b></td><td>${esc(i.protocolLead)}</td></tr><tr><td><b>Bemerkung:</b></td><td>${esc(i.remark)}</td></tr></table><h3>1. Zusammenfassung:</h3><p>Die Firma ${esc(state.company.name||'')} wurde beauftragt das Projekt ${esc(p.name)} als umweltfachliche Bauüberwachung zu betreuen. Im Zuge dessen fand am ${esc(i.date)} eine umweltfachliche Begehung der Baustelle statt.</p><h3>2. Ergebnis:</h3><div class='red'>${ai.bullets?.length?'<ul>'+ai.bullets.map(b=>`<li>${esc(b)}</li>`).join('')+'</ul>':'Im Zuge der Begehung wurden keine umweltfachlichen Mängel festgestellt.'}</div>${(ai.texts||[]).map(t=>`<p>${esc(t)}</p>`).join('')}<h3>3. Weiterer Verlauf:</h3><p>Im weiteren Verlauf der Baumaßnahme finden weiterhin regelmäßige Begehungen der Baustelle durch die Umweltfachliche Bauüberwachung statt.</p><table class='signature-block'><tr><td style='width:45%;padding-right:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Ort, Datum</div></td><td style='width:10%'>&nbsp;</td><td style='width:45%;padding-left:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Umweltfachliche Bauüberwachung</div></td></tr></table><h3>Dieses Protokoll wurde verteilt an:</h3><table>${(p.distribution||[]).map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.company)}</td><td>${esc(d.role)}</td></tr>`).join('')}</table><h3>4. Fotodokumentation</h3>${(i.photos||[]).length?`<h4>Fotos zur Begehung</h4>${(i.photos||[]).map((ph,pi)=>`<div class='photo-block'><p><img src='${ph.data}' width='403' height='308' style='width:10.65cm;height:8.15cm;object-fit:contain;border:1px solid #999'></p><p><i>Abbildung ${figIndex++}: Übersichtsfoto zur Begehung. (Eigene Aufnahme am ${esc(i.date)})</i></p></div>`).join('')}`:''}${i.findings.map((f,fi)=>`<div class='finding-block'><h4>Feststellung ${fi+1}: ${esc(f.title)}</h4>${(f.photos||[]).map(ph=>`<div class='photo-block'><p><img src='${ph.data}' width='403' height='308' style='width:10.65cm;height:8.15cm;object-fit:contain;border:1px solid #999'></p><p><i>Abbildung ${figIndex++}: ${esc((ai.captions||[])[captionIndex++]||'Fotodokumentation zur Feststellung.')} (Eigene Aufnahme am ${esc(i.date)})</i></p></div>`).join('')}</div>`).join('')}</body></html>`}
+function protocolHtml(i,p,ai){
+  let captionIndex=0;
+  let figIndex=1;
+
+  const participants=(i.participants||[])
+    .map(id=>esc(byId(state.employees,id)?.name||id))
+    .join('<br>');
+
+  const bullets=ai.bullets?.length
+    ? '<ul>'+ai.bullets.map(b=>'<li>'+esc(b)+'</li>').join('')+'</ul>'
+    : 'Im Zuge der Begehung wurden keine umweltfachlichen Mängel festgestellt.';
+
+  const texts=(ai.texts||[])
+    .map(t=>'<p>'+esc(t)+'</p>')
+    .join('');
+
+  // E-Mail-Adressen werden im Verteiler des fertigen Protokolls bewusst nicht ausgegeben.
+  const distributionRows=(p.distribution||[])
+    .map(d=>'<tr><td>'+esc(d.name)+'</td><td>'+esc(d.company)+'</td><td>'+esc(d.role)+'</td></tr>')
+    .join('');
+
+  const photoImgStyle='width:10.65cm;height:8.15cm;max-width:10.65cm;max-height:8.15cm;object-fit:contain;border:1px solid #999;display:block;margin:0;text-align:left;page-break-inside:avoid;mso-position-horizontal:left;';
+
+  function cleanFigureCaption(raw,f,fi){
+    let txt=String(raw||'').trim();
+    txt=txt.replace(/^\s*(Abbildung|Abb\.|Bild)\s*\d+\s*[:\-–]\s*/i,'').trim();
+    const generic=/^(fotodokumentation|foto\s+zu|dokumentation|abbildung|übersicht\s+zur\s+feststellung|situation)/i;
+    if(!txt || generic.test(txt) || /feststellung\s*\d+\.?$/i.test(txt)){
+      txt=String((f&&f.title)||'').trim() || String((f&&f.measure)||'').trim() || ('Feststellung '+(fi+1));
+    }
+    txt=txt.replace(/\s+/g,' ').trim();
+    if(txt && !/[.!?]$/.test(txt)) txt+='.';
+    return txt;
+  }
+
+  function photoBlockHtml(imageData,captionText){
+    return '<div class="photo-block">'+
+      '<table class="photo-table" align="left" style="width:10.65cm;max-width:10.65cm;margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">'+
+        '<tr><td class="photo-cell" style="border:0;padding:0;text-align:left;width:10.65cm;">'+
+          '<img align="left" src="'+imageData+'" width="403" height="308" style="'+photoImgStyle+'">'+
+        '</td></tr>'+
+        '<tr><td class="photo-caption-cell" style="border:0;padding:6pt 0 4pt 0;text-align:left;width:10.65cm;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;">'+
+          '<i>'+captionText+'</i>'+
+        '</td></tr>'+
+      '</table>'+
+      '<div style="clear:both;height:0;line-height:0;font-size:0">&nbsp;</div>'+
+    '</div>';
+  }
+
+  const inspectionPhotos=(i.photos||[]).length
+    ? '<h4>Fotos zur Begehung</h4>'+(i.photos||[]).map(ph=>
+        photoBlockHtml(ph.data,'Abbildung '+(figIndex++)+': Übersichtsfoto zur Begehung. (Eigene Aufnahme am '+esc(i.date)+')')
+      ).join('')
+    : '';
+
+  const findingPhotos=(i.findings||[]).map((f,fi)=>
+    '<div class="finding-block">'+
+      '<h4>Feststellung '+(fi+1)+': '+esc(f.title)+'</h4>'+
+      (f.photos||[]).map(ph=>{
+        const rawCaption=(ai.captions||[])[captionIndex++];
+        const caption='Abbildung '+(figIndex++)+': '+esc(cleanFigureCaption(rawCaption,f,fi))+' (Eigene Aufnahme am '+esc(i.date)+')';
+        return photoBlockHtml(ph.data,caption);
+      }).join('')+
+    '</div>'
+  ).join('');
+
+  return `<!doctype html><html><head><meta charset='utf-8'><style>
+    @page{size:21cm 29.7cm;margin:2.5cm 2.5cm 2.5cm 2.5cm;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;text-align:justify;line-height:1.4;margin:0;color:#000;}
+    p{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0 0 8pt 0;}
+    table{width:100%;border-collapse:collapse;table-layout:auto;margin:0 0 10pt 0;}
+    td{border:1px solid #999;padding:4.5pt 4.5pt;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;height:auto;}
+    .meta-table{width:100%;border-collapse:collapse;table-layout:auto;margin:0 0 10pt 0;}
+    .meta-table td{padding:4.5pt 4.5pt;line-height:1.2;height:auto;}
+    .meta-table td:first-child{font-weight:bold;white-space:nowrap;width:1%;}
+    .meta-table td:nth-child(2){width:auto;}
+    .distribution-table{width:100%;border-collapse:collapse;table-layout:auto;margin-top:4pt;}
+    .red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
+    .red ul{margin:0 0 0 18pt;padding-left:0;}
+    .red li{margin:0 0 3pt 0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
+    h2{font-family:Arial,Helvetica,sans-serif;font-size:16pt;font-weight:bold;page-break-after:avoid;margin:0 0 8pt 0;line-height:1.2;text-align:left;}
+    h3{font-family:Arial,Helvetica,sans-serif;font-size:13pt;font-weight:bold;page-break-after:avoid;margin:12pt 0 6pt 0;line-height:1.2;text-align:left;}
+    h4{font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-weight:bold;page-break-after:avoid;margin:10pt 0 5pt 0;line-height:1.2;text-align:left;}
+    .photo-section{page-break-before:always;break-before:page;}
+    .finding-block{page-break-inside:avoid;margin-bottom:12pt;text-align:left;}
+    .photo-block{page-break-inside:avoid;margin:0 0 14pt 0;text-align:left;clear:both;}
+    .photo-table{width:10.65cm;max-width:10.65cm;margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;}
+    .photo-table td,.photo-cell,.photo-caption-cell{border:0!important;padding:0;text-align:left;}
+    .photo-caption-cell{padding-top:6pt!important;padding-bottom:4pt!important;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
+    img{width:10.65cm;height:8.15cm;max-width:10.65cm;max-height:8.15cm;object-fit:contain;border:1px solid #999;page-break-inside:avoid;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
+    .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
+    .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
+    .signature-line{border-bottom:1px solid #000;height:34pt;}
+    .signature-label{font-size:9pt;color:#333;}
+    .signature-name{font-weight:bold;margin-top:4pt;}
+    .signature-role{font-size:10pt;color:#333;}
+    .signature-place{height:34pt;border-bottom:1px solid #000;}
+  </style></head><body>
+    <h2>Begehungsprotokoll</h2>
+    <table class='meta-table'>
+      <tr><td><b>Projekt/Bauvorhaben:</b></td><td>${esc(p.name)}</td></tr>
+      <tr><td><b>Themen:</b></td><td>${esc(i.topic)}</td></tr>
+      <tr><td><b>Datum/Zeit:</b></td><td>${esc(i.date)} ${esc(i.time)}</td></tr>
+      <tr><td><b>Ort/Raum/Strecke:</b></td><td>${esc(p.location)}</td></tr>
+      <tr><td><b>Anwesende/Teilnehmer:</b></td><td>${participants}</td></tr>
+      <tr><td><b>Witterung bei Begehung:</b></td><td>${esc(i.weather)}</td></tr>
+      <tr><td><b>Protokollführung:</b></td><td>${esc(i.protocolLead)}</td></tr>
+      <tr><td><b>Bemerkung:</b></td><td>${esc(i.remark)}</td></tr>
+    </table>
+    <h3>1. Zusammenfassung:</h3>
+    <p>Die Firma ${esc(state.company.name||'')} wurde beauftragt das Projekt ${esc(p.name)} als umweltfachliche Bauüberwachung zu betreuen. Im Zuge dessen fand am ${esc(i.date)} eine umweltfachliche Begehung der Baustelle statt.</p>
+    <h3>2. Ergebnis:</h3>
+    <div class='red'>${bullets}</div>
+    ${texts}
+    <h3>3. Weiterer Verlauf:</h3>
+    <p>Im weiteren Verlauf der Baumaßnahme finden weiterhin regelmäßige Begehungen der Baustelle durch die Umweltfachliche Bauüberwachung statt.</p>
+    <table class='signature-block'>
+      <tr>
+        <td style='width:45%;padding-right:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Ort, Datum</div></td>
+        <td style='width:10%'>&nbsp;</td>
+        <td style='width:45%;padding-left:30px'><div style='border-bottom:1px solid #000;height:30px'></div><div style='margin-top:8px'>Umweltfachliche Bauüberwachung</div></td>
+      </tr>
+    </table>
+    <h3>Dieses Protokoll wurde verteilt an:</h3>
+    <table class='distribution-table'>${distributionRows}</table>
+    <div class='photo-section'>
+      <h3>4. Fotodokumentation</h3>
+      ${inspectionPhotos}
+      ${findingPhotos}
+    </div>
+  </body></html>`;
+}
 
 /* ============================================================
    GitHub Upload für Protokoll-Artefakte
    Vanilla JS, kein Backend, keine externen Libraries
    Speichert aus dieser App:
    UBÜ Protokolle/<JJJJ_MM_TT>/<Projektname>/
-     protokoll.doc   (Word-kompatibles HTML-Dokument)
-     protokoll.html  (gleiches Protokoll als HTML)
+     protokoll.docx
      bilder/foto1.jpg, foto2.jpg, ...
-   Hinweis: Echte PDF-/DOCX-Blobs sind in dieser Datei aktuell nicht vorhanden.
+   DOCX wird direkt im Browser aus dem Protokoll-HTML erzeugt.
    ============================================================ */
 const GH_CONFIG_STORAGE_KEY = 'ubb_github_upload_config_v1';
 const GH_APP_DATA_PATH = 'App-Daten/ubb_daten.json';
@@ -369,6 +584,133 @@ function blobToB64(blob){
     };
     reader.onerror=()=>reject(new Error('Blob konnte nicht gelesen werden.'));
     reader.readAsDataURL(blob);
+  });
+}
+
+const DOCX_LIB_URL='https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js';
+
+function loadExternalScript(src, checkFn){
+  if(typeof checkFn==='function' && checkFn()) return Promise.resolve();
+  const existing=[...document.scripts].find(s=>s.src===src);
+  if(existing){
+    return new Promise((resolve,reject)=>{
+      if(typeof checkFn==='function' && checkFn()){resolve();return;}
+      existing.addEventListener('load',()=>resolve(),{once:true});
+      existing.addEventListener('error',()=>reject(new Error('Bibliothek konnte nicht geladen werden: '+src)),{once:true});
+    });
+  }
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src=src;
+    s.async=true;
+    s.onload=()=>resolve();
+    s.onerror=()=>reject(new Error('Bibliothek konnte nicht geladen werden: '+src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureDocxLib(){
+  await loadExternalScript(DOCX_LIB_URL, ()=>window.htmlDocx && typeof window.htmlDocx.asBlob==='function');
+  if(!window.htmlDocx || typeof window.htmlDocx.asBlob!=='function') throw new Error('DOCX-Bibliothek konnte nicht initialisiert werden.');
+}
+
+function waitForProtocolFrame(iframe){
+  return new Promise(resolve=>{
+    const doc=iframe.contentDocument;
+    const done=async()=>{
+      try{
+        if(doc.fonts && doc.fonts.ready) await doc.fonts.ready;
+        const imgs=[...doc.images];
+        await Promise.all(imgs.map(img=>{
+          if(img.complete) return Promise.resolve();
+          return new Promise(res=>{img.onload=res; img.onerror=res;});
+        }));
+      }catch(e){console.warn('Warten auf Protokollinhalt fehlgeschlagen:', e);}
+      setTimeout(resolve,250);
+    };
+    if(doc && (doc.readyState==='complete' || doc.readyState==='interactive')) done();
+    else iframe.onload=done;
+  });
+}
+
+function createProtocolFrame(html){
+  const iframe=document.createElement('iframe');
+  iframe.setAttribute('aria-hidden','true');
+  iframe.style.position='fixed';
+  iframe.style.left='-10000px';
+  iframe.style.top='0';
+  iframe.style.width='794px';
+  iframe.style.height='1123px';
+  iframe.style.border='0';
+  iframe.style.background='#fff';
+  document.body.appendChild(iframe);
+  const doc=iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  return iframe;
+}
+
+function cmToTwips(cm){
+  return Math.round(Number(cm) * 566.9291338583);
+}
+
+function prepareDocxHtml(html){
+  // Diese CSS-Ergänzung wird vor der DOCX-Erzeugung eingefügt.
+  // Sie orientiert sich am bisherigen Word-kompatiblen Referenz-DOC:
+  // Arial 11 pt, Blocksatz, Zeilenabstand 1,4, kompakte Tabellen,
+  // linksbündige Fotodokumentation und A4 mit 2,5 cm Seitenrand.
+  const pageCss = `<style>
+    @page{size:21cm 29.7cm;margin:2.5cm 2.5cm 2.5cm 2.5cm;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0;color:#000;}
+    p{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0 0 8pt 0;}
+    h2{font-size:16pt;line-height:1.2;margin:0 0 8pt 0;text-align:left;page-break-after:avoid;}
+    h3{font-size:13pt;line-height:1.2;margin:12pt 0 6pt 0;text-align:left;page-break-after:avoid;}
+    h4{font-size:11pt;line-height:1.2;margin:10pt 0 5pt 0;text-align:left;page-break-after:avoid;}
+    table{width:100%;border-collapse:collapse;table-layout:auto;}
+    td{border:1px solid #999;padding:4.5pt 4.5pt;vertical-align:top;font-size:11pt;line-height:1.2;height:auto;}
+    table.meta-table{width:100%;table-layout:auto;margin:0 0 10pt 0;}
+    table.meta-table td{padding:4.5pt 4.5pt;height:auto;line-height:1.2;}
+    table.meta-table td:first-child{font-weight:bold;white-space:nowrap;width:1%;}
+    table.meta-table td:nth-child(2){width:auto;}
+    .red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid;font-size:11pt;line-height:1.4;}
+    .red ul{margin:0 0 0 18pt;padding-left:0;}
+    .red li{font-size:11pt;line-height:1.4;margin:0 0 3pt 0;}
+    .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
+    .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-size:11pt;line-height:1.2;}
+    .photo-section{page-break-before:always;break-before:page;}
+    .finding-block{page-break-inside:avoid;margin-bottom:12pt;text-align:left;}
+    .photo-block{page-break-inside:avoid;margin:0 0 14pt 0;text-align:left;clear:both;}
+    .photo-table{width:10.65cm;max-width:10.65cm;margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;}
+    .photo-table td,.photo-cell,.photo-caption-cell{border:0!important;padding:0;text-align:left;}
+    .photo-caption-cell{padding-top:6pt!important;padding-bottom:4pt!important;font-size:11pt;line-height:1.4;}
+    img{width:10.65cm;height:8.15cm;max-width:10.65cm;max-height:8.15cm;object-fit:contain;border:1px solid #999;display:block;margin:0;text-align:left;page-break-inside:avoid;mso-position-horizontal:left;}
+  </style>`;
+
+  if(String(html).includes('</head>')){
+    return String(html).replace('</head>', pageCss + '</head>');
+  }
+
+  return '<!doctype html><html><head><meta charset="utf-8">' + pageCss + '</head><body>' + html + '</body></html>';
+}
+
+async function buildDocxBlobFromHtml(html){
+  await ensureDocxLib();
+
+  // Deutscher A4-/Word-Standard: 2,5 cm Seitenrand rundum.
+  const margin = cmToTwips(2.5);
+
+  return window.htmlDocx.asBlob(prepareDocxHtml(html), {
+    orientation:'portrait',
+    margins:{
+      top:margin,
+      right:margin,
+      bottom:margin,
+      left:margin,
+      header:0,
+      footer:0,
+      gutter:0
+    }
   });
 }
 
@@ -404,7 +746,7 @@ function githubConfigPanel(){
     : (saved ? `<span class="inline-success">✓ GitHub-Verbindung gespeichert</span>` : '');
   return `<hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
     <h3>GitHub-Upload</h3>
-    <p class="muted">Speichert Protokolle unter <b>UBÜ Protokolle/JJJJ_MM_TT/Projektname</b> und sichert die zentrale App-Datensicherung direkt in dein GitHub-Repository. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
+    <p class="muted">Speichert Protokolle als <b>DOCX</b> unter <b>UBÜ Protokolle/JJJJ_MM_TT/Projektname</b> und sichert die zentrale App-Datensicherung direkt in dein GitHub-Repository. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
     <div class="grid">
       <div><label>GitHub-Benutzername / Owner</label><input id="ghOwnerInput" type="text" value="${escAttr(cfg.ghOwner||'')}" placeholder="z. B. dein-github-name" autocomplete="username"></div>
       <div><label>Repository-Name</label><input id="ghRepoInput" type="text" value="${escAttr(cfg.ghRepo||'')}" placeholder="z. B. begehungsprotokolle"></div>
@@ -582,12 +924,11 @@ async function saveProtocolToGithub(iid, triggerButton){
     const html=protocolHtml(i,p,ai);
     const allImages=collectGithubImages(i);
 
-    setGithubButtonState(button,'Speichere … Word',true);
-    const docBlob=new Blob([html],{type:'application/msword;charset=utf-8'});
-    await ghPut(base+'/protokoll.doc', await blobToB64(docBlob), commitBase+' - Word-Dokument');
+    setGithubButtonState(button,'Erzeuge DOCX …',true);
+    const docxBlob=await buildDocxBlobFromHtml(html);
 
-    setGithubButtonState(button,'Speichere … HTML',true);
-    await ghPut(base+'/protokoll.html', b64utf8(html), commitBase+' - HTML');
+    setGithubButtonState(button,'Speichere … DOCX',true);
+    await ghPut(base+'/protokoll.docx', await blobToB64(docxBlob), commitBase+' - DOCX');
 
     for(let idx=0; idx<allImages.length; idx++){
       setGithubButtonState(button,'Speichere … Bild '+(idx+1)+'/'+allImages.length,true);
