@@ -196,8 +196,8 @@ async function exportProtocol(iid){
   const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
   let ai=await generateTexts(i,p);
   let html=protocolHtml(i,p,ai);
-  const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.doc`;
-  downloadBlob(html,fileName,'application/msword');
+  const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.html`;
+  downloadBlob(html,fileName,'text/html;charset=utf-8');
 
   setTimeout(()=>{
     const mailTo=(state.settings.workMail||'').trim();
@@ -355,7 +355,7 @@ function emailDraft(iid,fileName=''){
     '',
     fileName ? 'Dateiname: '+fileName : '',
     '',
-    'Hinweis: Die Word-Datei wurde bereits heruntergeladen und muss dieser E-Mail noch manuell angehängt werden.',
+    'Hinweis: Die HTML-Datei wurde bereits heruntergeladen und muss dieser E-Mail noch manuell angehängt werden.',
     '',
     'Viele Grüße'
   ].filter(line=>line!==null).join('\n');
