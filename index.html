@@ -445,8 +445,77 @@ function protocolHtml(i,p,ai){
     .map(d=>'<tr><td>'+esc(d.name)+'</td><td>'+esc(d.company)+'</td><td>'+esc(d.role)+'</td></tr>')
     .join('');
 
-  const photoWidthCm='5.3cm';
-  const photoImgStyle='width:'+photoWidthCm+';height:auto;max-width:'+photoWidthCm+';object-fit:contain;border:1px solid #999;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
+  // Ziel der Fotodokumentation im Word-kompatiblen DOC:
+  // Bilder linksbündig, fortlaufend untereinander, unverzerrt und so skaliert,
+  // dass in der Regel drei Foto-Blöcke auf eine A4-Seite passen.
+  const PHOTO_MAX_W_CM=10.5;
+  const PHOTO_MAX_H_CM=5.2;
+  const PHOTO_CAPTION_W_CM=10.5;
+  const CM_TO_PX=37.7952755906;
+
+  function dataUrlBinary(dataUrl){
+    const s=String(dataUrl||'');
+    const comma=s.indexOf(',');
+    const b64=comma>=0 ? s.slice(comma+1) : s;
+    try{return atob(b64);}catch(e){return '';}
+  }
+
+  function readU16BE(bin,offset){return (bin.charCodeAt(offset)<<8) + bin.charCodeAt(offset+1);}
+  function readU32BE(bin,offset){return ((bin.charCodeAt(offset)<<24)>>>0) + (bin.charCodeAt(offset+1)<<16) + (bin.charCodeAt(offset+2)<<8) + bin.charCodeAt(offset+3);}
+
+  function getImageDimensionsFromDataUrl(dataUrl){
+    const bin=dataUrlBinary(dataUrl);
+    if(!bin || bin.length<24) return null;
+    try{
+      // PNG: Breite/Höhe stehen im IHDR-Chunk bei Byte 16/20.
+      if(bin.charCodeAt(0)===0x89 && bin.slice(1,4)==='PNG'){
+        return {w:readU32BE(bin,16), h:readU32BE(bin,20)};
+      }
+      // JPEG: SOF-Marker suchen, dort stehen Höhe/Breite.
+      if(bin.charCodeAt(0)===0xFF && bin.charCodeAt(1)===0xD8){
+        let offset=2;
+        while(offset+9<bin.length){
+          if(bin.charCodeAt(offset)!==0xFF){offset++; continue;}
+          let marker=bin.charCodeAt(offset+1);
+          // Padding-FF überspringen.
+          while(marker===0xFF && offset+2<bin.length){offset++; marker=bin.charCodeAt(offset+1);}
+          if(marker===0xD8 || marker===0xD9){offset+=2; continue;}
+          const len=readU16BE(bin,offset+2);
+          if(!len || len<2) break;
+          const sof=(marker>=0xC0 && marker<=0xC3) || (marker>=0xC5 && marker<=0xC7) || (marker>=0xC9 && marker<=0xCB) || (marker>=0xCD && marker<=0xCF);
+          if(sof && offset+8<bin.length){
+            const h=readU16BE(bin,offset+5);
+            const w=readU16BE(bin,offset+7);
+            if(w>0 && h>0) return {w,h};
+          }
+          offset+=2+len;
+        }
+      }
+    }catch(e){console.warn('Bildmaße konnten nicht gelesen werden:', e);}
+    return null;
+  }
+
+  function fitImageToDocxBox(dataUrl){
+    const dim=getImageDimensionsFromDataUrl(dataUrl) || {w:4,h:3};
+    const ratio=dim.w/dim.h;
+    let w=PHOTO_MAX_W_CM;
+    let h=w/ratio;
+    if(h>PHOTO_MAX_H_CM){
+      h=PHOTO_MAX_H_CM;
+      w=h*ratio;
+    }
+    if(w>PHOTO_MAX_W_CM){
+      w=PHOTO_MAX_W_CM;
+      h=w/ratio;
+    }
+    // Word/HTML-Konverter arbeiten stabiler, wenn beide Maße explizit gesetzt sind.
+    return {
+      wCm:Number(w.toFixed(2)),
+      hCm:Number(h.toFixed(2)),
+      wPx:Math.max(1,Math.round(w*CM_TO_PX)),
+      hPx:Math.max(1,Math.round(h*CM_TO_PX))
+    };
+  }
 
   function cleanFigureCaption(raw,f,fi){
     let txt=String(raw||'').trim();
@@ -461,16 +530,17 @@ function protocolHtml(i,p,ai){
   }
 
   function photoBlockHtml(imageData,captionText){
-    return '<div class="photo-block">'+
-      '<table class="photo-table" align="left" style="width:'+photoWidthCm+';max-width:'+photoWidthCm+';margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:auto;mso-table-lspace:0pt;mso-table-rspace:0pt;">'+
-        '<tr><td class="photo-cell" style="border:0;padding:0;text-align:left;width:'+photoWidthCm+';">'+
-          '<img align="left" src="'+imageData+'" width="200" style="'+photoImgStyle+'">'+
-        '</td></tr>'+
-        '<tr><td class="photo-caption-cell" style="border:0;padding:5pt 0 4pt 0;text-align:left;width:'+photoWidthCm+';font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;">'+
-          '<i>'+captionText+'</i>'+
-        '</td></tr>'+
-      '</table>'+
-      '<div style="clear:both;height:0;line-height:0;font-size:0">&nbsp;</div>'+
+    const size=fitImageToDocxBox(imageData);
+    const w=size.wCm+'cm';
+    const h=size.hCm+'cm';
+    const imgStyle='width:'+w+';height:'+h+';border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
+    return '<div class="photo-block" style="margin:0 0 4pt 0;text-align:left;page-break-inside:auto;break-inside:auto;clear:none;">'+
+      '<p class="photo-img-p" style="margin:0 0 2pt 0;text-align:left;line-height:1;page-break-after:auto;">'+
+        '<img class="protocol-photo" src="'+imageData+'" width="'+size.wPx+'" height="'+size.hPx+'" style="'+imgStyle+'">'+
+      '</p>'+
+      '<p class="photo-caption" style="margin:0 0 4pt 0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;page-break-before:auto;">'+
+        '<i>'+captionText+'</i>'+
+      '</p>'+
     '</div>';
   }
 
@@ -508,13 +578,14 @@ function protocolHtml(i,p,ai){
     h2{font-family:Arial,Helvetica,sans-serif;font-size:16pt;font-weight:bold;page-break-after:avoid;margin:0 0 8pt 0;line-height:1.2;text-align:left;}
     h3{font-family:Arial,Helvetica,sans-serif;font-size:13pt;font-weight:bold;page-break-after:avoid;margin:12pt 0 6pt 0;line-height:1.2;text-align:left;}
     h4{font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-weight:bold;page-break-after:avoid;margin:10pt 0 5pt 0;line-height:1.2;text-align:left;}
-    .photo-section{page-break-before:always;break-before:page;}
-    .finding-block{page-break-inside:auto;margin-bottom:8pt;text-align:left;}
-    .photo-block{page-break-inside:auto;margin:0 0 10pt 0;text-align:left;clear:both;}
-    .photo-table{width:5.3cm;max-width:5.3cm;margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:auto;mso-table-lspace:0pt;mso-table-rspace:0pt;}
-    .photo-table td,.photo-cell,.photo-caption-cell{border:0!important;padding:0;text-align:left;}
-    .photo-caption-cell{padding-top:5pt!important;padding-bottom:4pt!important;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
-    img{width:5.3cm;height:auto;max-width:5.3cm;object-fit:contain;border:1px solid #999;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
+    .photo-section{page-break-before:auto;break-before:auto;margin:0;padding:0;}
+    .photo-section h3{page-break-after:auto;margin:12pt 0 4pt 0;}
+    .photo-section h4{page-break-after:auto;margin:4pt 0 3pt 0;}
+    .finding-block{page-break-inside:auto;margin:0 0 4pt 0;text-align:left;}
+    .photo-block{page-break-inside:auto;break-inside:auto;margin:0 0 4pt 0;text-align:left;clear:none;}
+    .photo-img-p{margin:0 0 2pt 0!important;text-align:left;line-height:1;}
+    .photo-caption{margin:0 0 4pt 0!important;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
+    img.protocol-photo{border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
     .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
     .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
     .signature-line{border-bottom:1px solid #000;height:34pt;}
@@ -563,9 +634,9 @@ function protocolHtml(i,p,ai){
    Vanilla JS, kein Backend, keine externen Libraries
    Speichert aus dieser App:
    UBÜ Protokolle/<JJJJ_MM_TT>/<Projektname>/
-     protokoll.docx
+     protokoll.doc   (Word-kompatibles HTML-Dokument)
      bilder/foto1.jpg, foto2.jpg, ...
-   DOCX wird direkt im Browser aus dem Protokoll-HTML erzeugt.
+   Das DOC ist bewusst das bisherige Word-kompatible HTML-DOC-Format.
    ============================================================ */
 const GH_CONFIG_STORAGE_KEY = 'ubb_github_upload_config_v1';
 const GH_APP_DATA_PATH = 'App-Daten/ubb_daten.json';
@@ -585,133 +656,6 @@ function blobToB64(blob){
     };
     reader.onerror=()=>reject(new Error('Blob konnte nicht gelesen werden.'));
     reader.readAsDataURL(blob);
-  });
-}
-
-const DOCX_LIB_URL='https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js';
-
-function loadExternalScript(src, checkFn){
-  if(typeof checkFn==='function' && checkFn()) return Promise.resolve();
-  const existing=[...document.scripts].find(s=>s.src===src);
-  if(existing){
-    return new Promise((resolve,reject)=>{
-      if(typeof checkFn==='function' && checkFn()){resolve();return;}
-      existing.addEventListener('load',()=>resolve(),{once:true});
-      existing.addEventListener('error',()=>reject(new Error('Bibliothek konnte nicht geladen werden: '+src)),{once:true});
-    });
-  }
-  return new Promise((resolve,reject)=>{
-    const s=document.createElement('script');
-    s.src=src;
-    s.async=true;
-    s.onload=()=>resolve();
-    s.onerror=()=>reject(new Error('Bibliothek konnte nicht geladen werden: '+src));
-    document.head.appendChild(s);
-  });
-}
-
-async function ensureDocxLib(){
-  await loadExternalScript(DOCX_LIB_URL, ()=>window.htmlDocx && typeof window.htmlDocx.asBlob==='function');
-  if(!window.htmlDocx || typeof window.htmlDocx.asBlob!=='function') throw new Error('DOCX-Bibliothek konnte nicht initialisiert werden.');
-}
-
-function waitForProtocolFrame(iframe){
-  return new Promise(resolve=>{
-    const doc=iframe.contentDocument;
-    const done=async()=>{
-      try{
-        if(doc.fonts && doc.fonts.ready) await doc.fonts.ready;
-        const imgs=[...doc.images];
-        await Promise.all(imgs.map(img=>{
-          if(img.complete) return Promise.resolve();
-          return new Promise(res=>{img.onload=res; img.onerror=res;});
-        }));
-      }catch(e){console.warn('Warten auf Protokollinhalt fehlgeschlagen:', e);}
-      setTimeout(resolve,250);
-    };
-    if(doc && (doc.readyState==='complete' || doc.readyState==='interactive')) done();
-    else iframe.onload=done;
-  });
-}
-
-function createProtocolFrame(html){
-  const iframe=document.createElement('iframe');
-  iframe.setAttribute('aria-hidden','true');
-  iframe.style.position='fixed';
-  iframe.style.left='-10000px';
-  iframe.style.top='0';
-  iframe.style.width='794px';
-  iframe.style.height='1123px';
-  iframe.style.border='0';
-  iframe.style.background='#fff';
-  document.body.appendChild(iframe);
-  const doc=iframe.contentDocument || iframe.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
-  return iframe;
-}
-
-function cmToTwips(cm){
-  return Math.round(Number(cm) * 566.9291338583);
-}
-
-function prepareDocxHtml(html){
-  // Diese CSS-Ergänzung wird vor der DOCX-Erzeugung eingefügt.
-  // Sie orientiert sich am bisherigen Word-kompatiblen Referenz-DOC:
-  // Arial 11 pt, Blocksatz, Zeilenabstand 1,4, kompakte Tabellen,
-  // linksbündige Fotodokumentation und A4 mit 2,5 cm Seitenrand.
-  const pageCss = `<style>
-    @page{size:21cm 29.7cm;margin:2.5cm 2.5cm 2.5cm 2.5cm;}
-    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0;color:#000;}
-    p{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0 0 8pt 0;}
-    h2{font-size:16pt;line-height:1.2;margin:0 0 8pt 0;text-align:left;page-break-after:avoid;}
-    h3{font-size:13pt;line-height:1.2;margin:12pt 0 6pt 0;text-align:left;page-break-after:avoid;}
-    h4{font-size:11pt;line-height:1.2;margin:10pt 0 5pt 0;text-align:left;page-break-after:avoid;}
-    table{width:100%;border-collapse:collapse;table-layout:auto;}
-    td{border:1px solid #999;padding:4.5pt 4.5pt;vertical-align:top;font-size:11pt;line-height:1.2;height:auto;}
-    table.meta-table{width:100%;table-layout:auto;margin:0 0 10pt 0;}
-    table.meta-table td{padding:4.5pt 4.5pt;height:auto;line-height:1.2;}
-    table.meta-table td:first-child{font-weight:bold;white-space:nowrap;width:1%;}
-    table.meta-table td:nth-child(2){width:auto;}
-    .red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid;font-size:11pt;line-height:1.4;}
-    .red ul{margin:0 0 0 18pt;padding-left:0;}
-    .red li{font-size:11pt;line-height:1.4;margin:0 0 3pt 0;}
-    .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
-    .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-size:11pt;line-height:1.2;}
-    .photo-section{page-break-before:always;break-before:page;}
-    .finding-block{page-break-inside:auto;margin-bottom:8pt;text-align:left;}
-    .photo-block{page-break-inside:auto;margin:0 0 10pt 0;text-align:left;clear:both;}
-    .photo-table{width:5.3cm;max-width:5.3cm;margin-left:0;margin-right:auto;border-collapse:collapse;table-layout:auto;mso-table-lspace:0pt;mso-table-rspace:0pt;}
-    .photo-table td,.photo-cell,.photo-caption-cell{border:0!important;padding:0;text-align:left;}
-    .photo-caption-cell{padding-top:5pt!important;padding-bottom:4pt!important;font-size:11pt;line-height:1.4;}
-    img{width:5.3cm;height:auto;max-width:5.3cm;object-fit:contain;border:1px solid #999;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
-  </style>`;
-
-  if(String(html).includes('</head>')){
-    return String(html).replace('</head>', pageCss + '</head>');
-  }
-
-  return '<!doctype html><html><head><meta charset="utf-8">' + pageCss + '</head><body>' + html + '</body></html>';
-}
-
-async function buildDocxBlobFromHtml(html){
-  await ensureDocxLib();
-
-  // Deutscher A4-/Word-Standard: 2,5 cm Seitenrand rundum.
-  const margin = cmToTwips(2.5);
-
-  return window.htmlDocx.asBlob(prepareDocxHtml(html), {
-    orientation:'portrait',
-    margins:{
-      top:margin,
-      right:margin,
-      bottom:margin,
-      left:margin,
-      header:0,
-      footer:0,
-      gutter:0
-    }
   });
 }
 
@@ -747,7 +691,7 @@ function githubConfigPanel(){
     : (saved ? `<span class="inline-success">✓ GitHub-Verbindung gespeichert</span>` : '');
   return `<hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
     <h3>GitHub-Upload</h3>
-    <p class="muted">Speichert Protokolle als <b>DOCX</b> unter <b>UBÜ Protokolle/JJJJ_MM_TT/Projektname</b> und sichert die zentrale App-Datensicherung direkt in dein GitHub-Repository. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
+    <p class="muted">Speichert Protokolle als <b>DOC</b> unter <b>UBÜ Protokolle/JJJJ_MM_TT/Projektname</b> und sichert die zentrale App-Datensicherung direkt in dein GitHub-Repository. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
     <div class="grid">
       <div><label>GitHub-Benutzername / Owner</label><input id="ghOwnerInput" type="text" value="${escAttr(cfg.ghOwner||'')}" placeholder="z. B. dein-github-name" autocomplete="username"></div>
       <div><label>Repository-Name</label><input id="ghRepoInput" type="text" value="${escAttr(cfg.ghRepo||'')}" placeholder="z. B. begehungsprotokolle"></div>
@@ -925,11 +869,9 @@ async function saveProtocolToGithub(iid, triggerButton){
     const html=protocolHtml(i,p,ai);
     const allImages=collectGithubImages(i);
 
-    setGithubButtonState(button,'Erzeuge DOCX …',true);
-    const docxBlob=await buildDocxBlobFromHtml(html);
-
-    setGithubButtonState(button,'Speichere … DOCX',true);
-    await ghPut(base+'/protokoll.docx', await blobToB64(docxBlob), commitBase+' - DOCX');
+    setGithubButtonState(button,'Speichere … DOC',true);
+    const docBlob=new Blob([html],{type:'application/msword;charset=utf-8'});
+    await ghPut(base+'/protokoll.doc', await blobToB64(docBlob), commitBase+' - Word-Dokument');
 
     for(let idx=0; idx<allImages.length; idx++){
       setGithubButtonState(button,'Speichere … Bild '+(idx+1)+'/'+allImages.length,true);
