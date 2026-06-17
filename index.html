@@ -280,10 +280,52 @@ async function fileToData(file){
     return original;
   }
 }
+// Skaliert ein einzelnes Foto so herunter, dass es exakt in die Protokoll-Box
+// (max. 10,5 x 5,2 cm bei 96 DPI) passt, und erzeugt es per Canvas neu. Das neu
+// kodierte JPEG hat keine DPI-Metadaten mehr und wird von Word in seiner nativen
+// (= korrekten) Pixelgröße eingefügt. Dadurch sind alle Bilder im DOC gleich groß,
+// unabhängig von Kamera, Quelle oder ursprünglicher DPI-Angabe.
+async function normalizePhotoForDoc(dataUrl){
+  const PHOTO_MAX_W_CM=10.5, PHOTO_MAX_H_CM=5.2, CM_TO_PX=37.7952755906; // 96 DPI
+  const maxW=Math.round(PHOTO_MAX_W_CM*CM_TO_PX); // ~397 px
+  const maxH=Math.round(PHOTO_MAX_H_CM*CM_TO_PX); // ~197 px
+  try{
+    const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('Bild konnte nicht geladen werden.'));im.src=dataUrl;});
+    const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+    if(!w||!h) return dataUrl;
+    const scale=Math.min(maxW/w, maxH/h, 1);
+    const tw=Math.max(1,Math.round(w*scale)), th=Math.max(1,Math.round(h*scale));
+    const canvas=document.createElement('canvas');
+    canvas.width=tw; canvas.height=th;
+    const ctx=canvas.getContext('2d');
+    if(!ctx) return dataUrl;
+    ctx.drawImage(img,0,0,tw,th);
+    try{return canvas.toDataURL('image/jpeg',0.82);}catch(e){return dataUrl;}
+  }catch(e){console.warn('Foto-Normierung fehlgeschlagen, nutze Original:',e);return dataUrl;}
+}
+
+// Erzeugt eine Kopie der Begehung, in der alle Fotos auf DOC-Zielgröße normiert sind.
+// Die Originaldaten im state bleiben unverändert (volle Qualität in der App).
+async function inspectionWithNormalizedPhotos(i){
+  const clone=JSON.parse(JSON.stringify(i));
+  if(Array.isArray(clone.photos)){
+    for(const ph of clone.photos){ if(ph&&ph.data) ph.data=await normalizePhotoForDoc(ph.data); }
+  }
+  if(Array.isArray(clone.findings)){
+    for(const f of clone.findings){
+      if(f&&Array.isArray(f.photos)){
+        for(const ph of f.photos){ if(ph&&ph.data) ph.data=await normalizePhotoForDoc(ph.data); }
+      }
+    }
+  }
+  return clone;
+}
+
 async function exportProtocol(iid){
   const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
   let ai=await generateTexts(i,p);
-  let html=protocolHtml(i,p,ai);
+  const iDoc=await inspectionWithNormalizedPhotos(i);
+  let html=protocolHtml(iDoc,p,ai);
   const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.doc`;
   downloadBlob(html,fileName,'application/msword');
   toast('✅ Protokoll wurde heruntergeladen.');
@@ -533,14 +575,18 @@ function protocolHtml(i,p,ai){
     const size=fitImageToDocxBox(imageData);
     const w=size.wCm+'cm';
     const h=size.hCm+'cm';
-    // WICHTIG: Word skaliert <img> mit Pixel-Attributen (width/height in px) je nach
-    // eingebetteter DPI-Angabe des Fotos unterschiedlich – dasselbe Foto wird mal
-    // korrekt, mal viel zu groß eingefügt. Deshalb werden hier AUSSCHLIESSLICH
-    // physikalische cm-Maße gesetzt (DPI-unabhängig) und keine Pixel-Attribute mehr.
+    // WICHTIG: Word liest in .doc-HTML die Bildgröße zuerst aus den HTML-Attributen
+    // width/height und behandelt nackte Zahlen als Pixel, rechnet diese aber je nach
+    // eingebetteter DPI des Fotos unterschiedlich um -> dasselbe Foto mal korrekt,
+    // mal viel zu groß. Das Bild wird daher in fitImageToDocxBox bereits auf eine
+    // feste Zielpixelgröße (96 DPI, passend zu den cm-Maßen) heruntergerechnet.
+    // Hier werden BEIDE Angaben gesetzt: Pixel-Attribute (passend zur jetzt nativen
+    // Bildgröße) UND cm im Style. Beide ergeben dieselbe physikalische Größe, sodass
+    // Word unabhängig von DPI-Metadaten konsistent skaliert.
     const imgStyle='width:'+w+';height:'+h+';max-width:'+w+';max-height:'+h+';border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
     return '<div class="photo-block" style="margin:0 0 4pt 0;text-align:left;page-break-inside:auto;break-inside:auto;clear:none;">'+
       '<p class="photo-img-p" style="margin:0 0 2pt 0;text-align:left;line-height:1;page-break-after:auto;">'+
-        '<img class="protocol-photo" src="'+imageData+'" style="'+imgStyle+'">'+
+        '<img class="protocol-photo" src="'+imageData+'" width="'+size.wPx+'" height="'+size.hPx+'" style="'+imgStyle+'">'+
       '</p>'+
       '<p class="photo-caption" style="margin:0 0 4pt 0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;page-break-before:auto;">'+
         '<i>'+captionText+'</i>'+
@@ -870,7 +916,8 @@ async function saveProtocolToGithub(iid, triggerButton){
 
     setGithubButtonState(button,'Erzeuge Protokoll …',true);
     const ai=await generateTexts(i,p);
-    const html=protocolHtml(i,p,ai);
+    const iDoc=await inspectionWithNormalizedPhotos(i);
+    const html=protocolHtml(iDoc,p,ai);
     const allImages=collectGithubImages(i);
 
     setGithubButtonState(button,'Speichere … DOC',true);
