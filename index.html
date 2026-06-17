@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UBB Begehungsprotokoll 0.4.17</title>
+  <title>UBB Begehungsprotokoll 0.4.18</title>
   <style>
     :root{--bg:#f6f7f9;--card:#fff;--text:#15171a;--muted:#68707c;--accent:#1976d2;--danger:#c62828;--line:#d9dde3;--soft:#eef5ff}
     *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
@@ -280,10 +280,76 @@ async function fileToData(file){
     return original;
   }
 }
+
+const PROTOCOL_PHOTO_MAX_W_PX=430;
+const PROTOCOL_PHOTO_MAX_H_PX=230;
+
+function collectProtocolPhotoDataUrls(i){
+  const urls=[];
+  (i.photos||[]).forEach(ph=>{ if(ph&&ph.data) urls.push(ph.data); });
+  (i.findings||[]).forEach(f=>{
+    (f.photos||[]).forEach(ph=>{ if(ph&&ph.data) urls.push(ph.data); });
+  });
+  return urls;
+}
+
+function loadProtocolImage(dataUrl){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>resolve(img);
+    img.onerror=()=>reject(new Error('Bild konnte für das Protokoll nicht geladen werden.'));
+    img.src=dataUrl;
+  });
+}
+
+async function makeProtocolPhoto(dataUrl){
+  const source=String(dataUrl||'');
+  if(!source) return {data:'',wPx:1,hPx:1};
+  try{
+    const img=await loadProtocolImage(source);
+    const sourceW=img.naturalWidth||img.width||1;
+    const sourceH=img.naturalHeight||img.height||1;
+    const scale=Math.min(1, PROTOCOL_PHOTO_MAX_W_PX/sourceW, PROTOCOL_PHOTO_MAX_H_PX/sourceH);
+    const wPx=Math.max(1,Math.round(sourceW*scale));
+    const hPx=Math.max(1,Math.round(sourceH*scale));
+    const canvas=document.createElement('canvas');
+    canvas.width=wPx;
+    canvas.height=hPx;
+    const ctx=canvas.getContext('2d');
+    if(!ctx) throw new Error('Canvas konnte nicht erstellt werden.');
+    // Weißer Hintergrund verhindert schwarze Flächen bei PNG/Transparenz und sorgt für stabile Word-Ausgabe.
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(0,0,wPx,hPx);
+    ctx.drawImage(img,0,0,wPx,hPx);
+    return {data:canvas.toDataURL('image/jpeg',0.88),wPx,hPx};
+  }catch(e){
+    console.warn('Protokoll-Bild konnte nicht verkleinert werden, nutze Fallback-Größe:', e);
+    const fallback=fitProtocolFallbackPixels(source);
+    return {data:source,wPx:fallback.wPx,hPx:fallback.hPx};
+  }
+}
+
+function fitProtocolFallbackPixels(dataUrl){
+  // Dieser Fallback wird nur genutzt, wenn ein Bild im Browser nicht per Canvas verkleinert werden konnte.
+  // 4:3 ist als neutrale Ersatzproportion gewählt; im Normalfall wird vorher die echte Proportion verwendet.
+  return {wPx:Math.round(PROTOCOL_PHOTO_MAX_H_PX*4/3),hPx:PROTOCOL_PHOTO_MAX_H_PX};
+}
+
+async function prepareProtocolPhotoCache(i){
+  const cache=new Map();
+  const urls=collectProtocolPhotoDataUrls(i);
+  for(const dataUrl of urls){
+    if(cache.has(dataUrl)) continue;
+    cache.set(dataUrl, await makeProtocolPhoto(dataUrl));
+  }
+  return cache;
+}
+
 async function exportProtocol(iid){
   const i=byId(state.inspections,iid),p=byId(state.projects,i.projectId)||{};
   let ai=await generateTexts(i,p);
-  let html=protocolHtml(i,p,ai);
+  let photoCache=await prepareProtocolPhotoCache(i);
+  let html=protocolHtml(i,p,ai,photoCache);
   const fileName=`Begehungsprotokoll_${(p.name||'Projekt').replaceAll(' ','_')}_${i.date}.doc`;
   downloadBlob(html,fileName,'application/msword');
   toast('✅ Protokoll wurde heruntergeladen.');
@@ -424,7 +490,8 @@ ${JSON.stringify(
     anzahlFotos: (f.photos || []).length
   }))
 )}`; const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:state.settings.model||'gpt-4o-mini',messages:[{role:'system',content:'Antworte ausschließlich mit gültigem JSON.'},{role:'user',content:prompt}],temperature:0.2})}); const data=await r.json(); const txt=data.choices?.[0]?.message?.content||''; return JSON.parse(txt.replace(/^```json|```$/g,'')); }catch(e){alert('KI konnte nicht genutzt werden. Es wird ein einfacher Standardtext erstellt.'); return fallback}}
-function protocolHtml(i,p,ai){
+function protocolHtml(i,p,ai,photoCache){
+  photoCache=photoCache||new Map();
   let captionIndex=0;
   let figIndex=1;
 
@@ -530,15 +597,19 @@ function protocolHtml(i,p,ai){
   }
 
   function photoBlockHtml(imageData,captionText){
-    const size=fitImageToDocxBox(imageData);
-    const w=size.wCm+'cm';
-    const h=size.hCm+'cm';
-    const imgStyle='width:'+w+';height:'+h+';border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
-    return '<div class="photo-block" style="margin:0 0 4pt 0;text-align:left;page-break-inside:auto;break-inside:auto;clear:none;">'+
-      '<p class="photo-img-p" style="margin:0 0 2pt 0;text-align:left;line-height:1;page-break-after:auto;">'+
-        '<img class="protocol-photo" src="'+imageData+'" width="'+size.wPx+'" height="'+size.hPx+'" style="'+imgStyle+'">'+
+    const prepared=(photoCache&&photoCache.get(imageData)) || {data:imageData,...fitProtocolFallbackPixels(imageData)};
+    const src=prepared.data||imageData;
+    const wPx=Math.max(1,Math.round(prepared.wPx||PROTOCOL_PHOTO_MAX_W_PX));
+    const hPx=Math.max(1,Math.round(prepared.hPx||PROTOCOL_PHOTO_MAX_H_PX));
+    // In Word-kompatiblem .doc ist das am stabilsten: Das Bild wird vorab als kleines JPEG erzeugt
+    // und zusätzlich mit identischen width/height-Attributen sowie Inline-CSS ausgegeben.
+    // Dadurch verwendet Word nicht mehr versehentlich die ursprüngliche Kameraauflösung für Layout/Paginierung.
+    const imgStyle='width:'+wPx+'px;height:'+hPx+'px;max-width:'+wPx+'px;max-height:'+hPx+'px;border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
+    return '<div class="photo-block" style="margin:0 0 3pt 0;text-align:left;page-break-before:auto;page-break-after:auto;page-break-inside:auto;break-inside:auto;clear:none;border:0;">'+
+      '<p class="photo-img-p" style="margin:0 0 1pt 0;text-align:left;line-height:1;page-break-before:auto;page-break-after:auto;border:0;">'+
+        '<img class="protocol-photo" src="'+src+'" width="'+wPx+'" height="'+hPx+'" style="'+imgStyle+'">'+
       '</p>'+
-      '<p class="photo-caption" style="margin:0 0 4pt 0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;page-break-before:auto;">'+
+      '<p class="photo-caption" style="margin:0 0 3pt 0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;page-break-before:auto;page-break-after:auto;border:0;">'+
         '<i>'+captionText+'</i>'+
       '</p>'+
     '</div>';
@@ -578,14 +649,14 @@ function protocolHtml(i,p,ai){
     h2{font-family:Arial,Helvetica,sans-serif;font-size:16pt;font-weight:bold;page-break-after:avoid;margin:0 0 8pt 0;line-height:1.2;text-align:left;}
     h3{font-family:Arial,Helvetica,sans-serif;font-size:13pt;font-weight:bold;page-break-after:avoid;margin:12pt 0 6pt 0;line-height:1.2;text-align:left;}
     h4{font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-weight:bold;page-break-after:avoid;margin:10pt 0 5pt 0;line-height:1.2;text-align:left;}
-    .photo-section{page-break-before:auto;break-before:auto;margin:0;padding:0;}
-    .photo-section h3{page-break-after:auto;margin:12pt 0 4pt 0;}
-    .photo-section h4{page-break-after:auto;margin:4pt 0 3pt 0;}
-    .finding-block{page-break-inside:auto;margin:0 0 4pt 0;text-align:left;}
-    .photo-block{page-break-inside:auto;break-inside:auto;margin:0 0 4pt 0;text-align:left;clear:none;}
-    .photo-img-p{margin:0 0 2pt 0!important;text-align:left;line-height:1;}
-    .photo-caption{margin:0 0 4pt 0!important;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
-    img.protocol-photo{border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
+    .photo-section{page-break-before:auto!important;page-break-after:auto!important;break-before:auto;margin:0;padding:0;text-align:left;}
+    .photo-section h3{page-break-before:auto!important;page-break-after:auto!important;margin:10pt 0 3pt 0;text-align:left;}
+    .photo-section h4{page-break-before:auto!important;page-break-after:auto!important;margin:2pt 0 2pt 0;text-align:left;}
+    .finding-block{page-break-before:auto!important;page-break-after:auto!important;page-break-inside:auto;margin:0 0 2pt 0;text-align:left;border:0;}
+    .photo-block{page-break-before:auto!important;page-break-after:auto!important;page-break-inside:auto;break-inside:auto;margin:0 0 3pt 0;text-align:left;clear:none;border:0;}
+    .photo-img-p{margin:0 0 1pt 0!important;text-align:left;line-height:1;border:0!important;}
+    .photo-caption{margin:0 0 3pt 0!important;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;border:0!important;}
+    img.protocol-photo{border:0!important;outline:0!important;display:block;margin:0;text-align:left;mso-position-horizontal:left;}
     .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
     .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
     .signature-line{border-bottom:1px solid #000;height:34pt;}
@@ -866,7 +937,8 @@ async function saveProtocolToGithub(iid, triggerButton){
 
     setGithubButtonState(button,'Erzeuge Protokoll …',true);
     const ai=await generateTexts(i,p);
-    const html=protocolHtml(i,p,ai);
+    const photoCache=await prepareProtocolPhotoCache(i);
+    const html=protocolHtml(i,p,ai,photoCache);
     const allImages=collectGithubImages(i);
 
     setGithubButtonState(button,'Speichere … DOC',true);
