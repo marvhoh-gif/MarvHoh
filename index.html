@@ -878,9 +878,8 @@ function protocolHtml(i,p,ai){
    GitHub Upload für Protokoll-Artefakte
    Vanilla JS, kein Backend, keine externen Libraries
    Speichert aus dieser App:
-   UBÜ Protokolle/Protokoll (JJJJ_MM_TT_Projektname)/
-     JJJJ_MM_TT_Projektname.doc   (Word-kompatibles HTML-Dokument)
-     bilder/foto1.jpg, foto2.jpg, ...
+   UBÜ Protokolle/JJJJ_MM_TT_Projektname.doc   (Word-kompatibles HTML-Dokument)
+   UBÜ Protokolle/Bilder/JJJJ_MM_TT_Projektname_1.jpg, ..._2.jpg, ...
    Das DOC ist bewusst das bisherige Word-kompatible HTML-DOC-Format.
    ============================================================ */
 const GH_CONFIG_STORAGE_KEY = 'ubb_github_upload_config_v1';
@@ -936,7 +935,7 @@ function githubConfigPanel(){
     : (saved ? `<span class="inline-success">✓ GitHub-Verbindung gespeichert</span>` : '');
   return `<hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
     <h3>GitHub-Upload</h3>
-    <p class="muted">Speichert Protokolle als <b>DOC</b> unter <b>UBÜ Protokolle/Protokoll (JJJJ_MM_TT_Projektname)</b> und sichert die zentrale App-Datensicherung direkt in dein GitHub-Repository. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
+    <p class="muted">Speichert das Protokoll als <b>DOC</b> direkt unter <b>UBÜ Protokolle</b> (Dateiname JJJJ_MM_TT_Projektname) und alle Fotos gesammelt unter <b>UBÜ Protokolle/Bilder</b>. Zusätzlich wird die zentrale App-Datensicherung in dein GitHub-Repository geschrieben. Der Token wird nicht in diese Datei geschrieben, sondern nur lokal in diesem Browser gespeichert.</p>
     <div class="grid">
       <div><label>GitHub-Benutzername / Owner</label><input id="ghOwnerInput" type="text" value="${escAttr(cfg.ghOwner||'')}" placeholder="z. B. dein-github-name" autocomplete="username"></div>
       <div><label>Repository-Name</label><input id="ghRepoInput" type="text" value="${escAttr(cfg.ghRepo||'')}" placeholder="z. B. begehungsprotokolle"></div>
@@ -1166,8 +1165,8 @@ async function saveProtocolToGithub(iid, triggerButton){
     const title=cleanGithubTitle(p.name||'Projekt');
     // Gemeinsamer Namensbestandteil: jjjj_mm_tt_Projektname
     const baseName=dateParts.folder+'_'+title;
-    // Eingekürzte Ordnerstruktur: UBÜ Protokolle/Protokoll (jjjj_mm_tt_Projektname)
-    const base='UBÜ Protokolle/Protokoll ('+baseName+')';
+    // DOC direkt in UBÜ Protokolle/, Bilder gesammelt in UBÜ Protokolle/Bilder/
+    const root='UBÜ Protokolle';
     const commitBase='Protokoll speichern: '+baseName;
 
     setGithubButtonState(button,'Erzeuge Protokoll …',true);
@@ -1178,11 +1177,11 @@ async function saveProtocolToGithub(iid, triggerButton){
 
     setGithubButtonState(button,'Speichere … DOC',true);
     const docBlob=new Blob([html],{type:'application/msword;charset=utf-8'});
-    await ghPut(base+'/'+baseName+'.doc', await blobToB64(docBlob), commitBase+' - Word-Dokument');
+    await ghPut(root+'/'+baseName+'.doc', await blobToB64(docBlob), commitBase+' - Word-Dokument');
 
     for(let idx=0; idx<allImages.length; idx++){
       setGithubButtonState(button,'Speichere … Bild '+(idx+1)+'/'+allImages.length,true);
-      await ghPut(base+'/bilder/foto'+(idx+1)+'.jpg', allImages[idx].b64, commitBase+' - Foto '+(idx+1));
+      await ghPut(root+'/Bilder/'+baseName+'_'+(idx+1)+'.jpg', allImages[idx].b64, commitBase+' - Foto '+(idx+1));
     }
 
     setGithubButtonState(button,'Sichere App-Daten …',true);
@@ -1195,7 +1194,7 @@ async function saveProtocolToGithub(iid, triggerButton){
     );
 
     setGithubButtonState(button,'Gespeichert ✓',true);
-    alert('Protokoll und App-Daten erfolgreich nach GitHub gespeichert:\n\nProtokoll:\n'+base+'\n\nApp-Daten:\n'+GH_APP_DATA_PATH);
+    alert('Protokoll und App-Daten erfolgreich nach GitHub gespeichert:\n\nProtokoll:\n'+root+'/'+baseName+'.doc\n\nBilder:\n'+root+'/Bilder/\n\nApp-Daten:\n'+GH_APP_DATA_PATH);
   }catch(err){
     console.error(err);
     alert('Speichern nach GitHub fehlgeschlagen:\n\n'+explainGithubError(err));
