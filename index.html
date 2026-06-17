@@ -186,7 +186,11 @@ function editFinding(iid,fid){
     <label>Interne Notiz</label>
     <textarea id="findingNote">${esc(f.note)}</textarea>
     <label>Fotos hinzufügen</label>
-    <input type="file" accept="image/*" multiple capture="environment" id="photos">
+    <p class="muted">Du kannst beliebig viele Fotos aus der Mediathek auswählen und zusätzlich direkt mit der Kamera aufnehmen.</p>
+    <label>Aus Dateien / Fotomediathek auswählen</label>
+    <input type="file" accept="image/*" multiple id="photos">
+    <label>Direkt Foto aufnehmen</label>
+    <input type="file" accept="image/*" capture="environment" multiple id="photosCamera">
     <div class="photos">${(f.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removePhoto('${iid}','${fid}',${ix})">Foto löschen</button></div>`).join('')}</div>
     <div class="row"><button type="button" id="saveFindingButton" onclick="saveFinding('${iid}','${fid}',this)">Speichern</button><button type="button" class="secondary" onclick="openInspection('${iid}')">Zurück</button></div>
   </div>`;
@@ -213,7 +217,11 @@ async function saveFinding(iid,fid,btn){
     f.photos=f.photos||[];
 
     const photoInput=document.getElementById('photos');
-    const files=photoInput && photoInput.files ? Array.from(photoInput.files) : [];
+    const cameraInput=document.getElementById('photosCamera');
+    const files=[
+      ...(photoInput && photoInput.files ? Array.from(photoInput.files) : []),
+      ...(cameraInput && cameraInput.files ? Array.from(cameraInput.files) : [])
+    ];
     for(let idx=0; idx<files.length; idx++){
       if(button) button.textContent='Foto '+(idx+1)+'/'+files.length+' wird gespeichert …';
       f.photos.push({name:files[idx].name||('foto_'+(idx+1)+'.jpg'),data:await fileToData(files[idx]),caption:''});
@@ -331,7 +339,7 @@ async function exportProtocol(iid){
   downloadBlob(html,fileName,'application/msword');
   toast('✅ Protokoll wurde heruntergeladen.');
 }
-async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>f.title||f.measure||`Feststellung ${fi+1}`)),headings:i.findings.map(f=>f.title||f.measure||'')}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
+async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${`Die Mängelbeseitigung hat ${(f.deadline && String(f.deadline).trim())?`bis zum ${f.deadline}`:'schnellstmöglich'} zu erfolgen.`}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>f.title||f.measure||`Feststellung ${fi+1}`)),headings:i.findings.map(f=>f.title||f.measure||'')}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
 
 Schreibe sachlich, fachlich korrekt und präzise.
 
@@ -347,7 +355,7 @@ ALLGEMEINE REGELN
 - fachlicher Stil einer Umweltfachlichen Bauüberwachung
 - etwa 3 bis 5 Sätze pro Feststellung, ausformuliert aber ohne Ausschweifen
 - Maßnahmen konkret benennen
-- Fristen und Verantwortlichkeiten nennen, sofern vorhanden
+- Fristen und Verantwortlichkeiten nennen, sofern vorhanden\n- wenn keine Frist angegeben ist oder die Frist \"schnellstmöglich\" lautet, im Text \"schnellstmöglich\" verwenden und kein konkretes Datum erfinden
 - auf den Punkt formulieren
 - keine KI-typischen Formulierungen
 - offensichtliche Tipp-, Rechtschreib- und Grammatikfehler aus den Eingaben stillschweigend korrigieren
@@ -388,12 +396,18 @@ Regeln:
 - keine Bewertungen
 - keine Wiederholungen
 - nur das Wesentliche
+- Rechtschreib- und Tippfehler der Eingabe korrigieren
+- umgangssprachliche oder saloppe Eingaben fachlich korrekt und sachlich formulieren, ohne den Sinn zu verändern
 
 Beispiel:
 
 - Reptilienschutzzaun im Bereich Maststandort 5 beschädigt.
 - Bodenlagerung außerhalb der vorgesehenen Lagerfläche.
 - Amphibienschutzzaun weist mehrere Öffnungen auf.
+
+Beispiel für fachliche Umformulierung:
+
+Eingabe "Reptilienschutzzaun umgefahren" wird zu "Reptilienschutzzaun durch Befahren beschädigt."
 
 FLIESSTEXT
 
@@ -494,7 +508,7 @@ ${JSON.stringify(
     feststellung: f.title,
     massnahme: f.measure,
     verantwortlich: f.responsible,
-    frist: f.deadline,
+    frist: (f.deadline && String(f.deadline).trim()) ? f.deadline : 'schnellstmöglich',
     status: f.status,
     anzahlFotos: (f.photos || []).length
   }))
