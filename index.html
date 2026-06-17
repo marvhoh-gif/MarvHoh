@@ -28,25 +28,81 @@ const PHOTO_MAX_W_CM=6.43;   // maximale Bildbreite im DOC
 const PHOTO_MAX_H_CM=8.56;   // maximale Bildhöhe im DOC
 const CM_TO_PX=37.7952755906; // Umrechnung cm -> px bei 96 DPI
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-let state=load()||{company:{name:'',address:'',phone:'',email:'',website:'',open:true},employees:[],projects:[],inspections:[],settings:{apiKey:'',apiKeySaved:false,model:'gpt-4o-mini'},activeInspectionId:null};
-if(state.company && state.company.open===undefined) state.company.open = !state.company.name;
-if(state.settings && state.settings.apiKeySaved===undefined) state.settings.apiKeySaved = !!state.settings.apiKey;
+function defaultState(){return {company:{name:'',address:'',phone:'',email:'',website:'',open:true},employees:[],projects:[],inspections:[],settings:{apiKey:'',apiKeySaved:false,model:'gpt-4o-mini'},activeInspectionId:null};}
+let state=defaultState();
+function normalizeState(){
+  if(state.company && state.company.open===undefined) state.company.open = !state.company.name;
+  if(state.settings && state.settings.apiKeySaved===undefined) state.settings.apiKeySaved = !!state.settings.apiKey;
+}
 let page='home';
 let flashTarget={};
-function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}}
+
+// ============================================================
+// Speicher: IndexedDB (großer Speicher für Fotos) mit
+// automatischer einmaliger Übernahme alter localStorage-Daten.
+// Die App arbeitet weiter synchron mit `state`; save() schreibt
+// sofort in den Speicher (asynchron im Hintergrund, ohne zu warten).
+// ============================================================
+const IDB_NAME='ubb_app_db';
+const IDB_STORE='kv';
+let _idb=null;
+
+function idbOpen(){
+  return new Promise((resolve,reject)=>{
+    try{
+      const req=indexedDB.open(IDB_NAME,1);
+      req.onupgradeneeded=()=>{ const db=req.result; if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE); };
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error);
+    }catch(e){reject(e);}
+  });
+}
+function idbGet(key){
+  return new Promise((resolve,reject)=>{
+    if(!_idb){resolve(null);return;}
+    try{
+      const tx=_idb.transaction(IDB_STORE,'readonly');
+      const r=tx.objectStore(IDB_STORE).get(key);
+      r.onsuccess=()=>resolve(r.result??null);
+      r.onerror=()=>reject(r.error);
+    }catch(e){reject(e);}
+  });
+}
+function idbSet(key,val){
+  return new Promise((resolve,reject)=>{
+    if(!_idb){resolve(false);return;}
+    try{
+      const tx=_idb.transaction(IDB_STORE,'readwrite');
+      tx.objectStore(IDB_STORE).put(val,key);
+      tx.oncomplete=()=>resolve(true);
+      tx.onerror=()=>reject(tx.error);
+    }catch(e){reject(e);}
+  });
+}
+
 let storageWarningShown=false;
-function save(){
+let _saveQueued=false;
+// Schreibt den aktuellen state in IndexedDB. Wird von save() angestoßen.
+async function persistState(){
+  _saveQueued=false;
   try{
-    localStorage.setItem(KEY,JSON.stringify(state));
+    if(_idb){ await idbSet(KEY, state); return true; }
+    // Fallback, falls IndexedDB nicht verfügbar ist: localStorage versuchen.
+    localStorage.setItem(KEY, JSON.stringify(state));
     return true;
   }catch(e){
-    console.error('Lokales Speichern fehlgeschlagen:', e);
+    console.error('Speichern fehlgeschlagen:', e);
     if(!storageWarningShown){
       storageWarningShown=true;
-      alert('Die Daten konnten auf diesem Gerät nicht vollständig gespeichert werden. Häufige Ursache sind zu große Fotos im Browser-Speicher. Neue Fotos werden ab jetzt automatisch verkleinert. Bitte ggf. sehr große/alte Fotos entfernen oder die GitHub-Datensicherung nutzen.');
+      alert('Die Daten konnten auf diesem Gerät nicht vollständig gespeichert werden. Bitte ggf. sehr große/alte Fotos entfernen oder die GitHub-Datensicherung nutzen.');
     }
     return false;
   }
+}
+// Synchron aufrufbar wie bisher; stößt das Speichern im Hintergrund an.
+function save(){
+  if(!_saveQueued){ _saveQueued=true; Promise.resolve().then(persistState); }
+  return true;
 }
 function saveNow(msg='✅ Gespeichert.'){save(); toast(msg)}
 function saveArea(key,msg){save(); flashTarget[key]=msg; render(); setTimeout(()=>{delete flashTarget[key]; render()},2200)}
@@ -1206,7 +1262,28 @@ function exportData(){downloadBlob(JSON.stringify(state,null,2),'ubb_daten.json'
 function employeeCheckboxes(selected,prefix){return state.employees.map(e=>`<label class="pill"><input type="checkbox" ${selected.includes(e.id)?'checked':''} onchange="${prefix}'${e.id}')"> ${esc(e.name||'Mitarbeiter')}</label>`).join('')||'<p class="muted">Noch keine Mitarbeiter angelegt.</p>'}
 function inp(label,path,type='text'){return `<label>${label}</label><input type="${type}" data-path="${path}" value="${escAttr(path.split('.').reduce((o,k)=>o?.[k],state))}">`} function ta(label,path){return `<label>${label}</label><textarea data-path="${path}">${esc(path.split('.').reduce((o,k)=>o?.[k],state))}</textarea>`} function rawInp(label,val,onchange){let type=onchange==='date'?'date':'text', oc=onchange&&onchange!=='date'?`oninput="${onchange}"`:'';return `<div><label>${label}</label><input type="${type}" value="${escAttr(val)}" ${oc}></div>`} function rawTa(label,val,onchange){let oc=onchange?`oninput="${onchange}"`:'';return `<label>${label}</label><textarea ${oc}>${esc(val)}</textarea>`}
 function bindInputs(){document.querySelectorAll('[data-path]').forEach(el=>el.oninput=()=>{let parts=el.dataset.path.split('.'),o=state;while(parts.length>1)o=o[parts.shift()];o[parts[0]]=el.value;save()})}
-render();
+// App-Start: zuerst IndexedDB öffnen und Daten laden, dann rendern.
+async function startApp(){
+  try{ _idb=await idbOpen(); }
+  catch(e){ console.warn('IndexedDB nicht verfügbar, nutze localStorage:', e); _idb=null; }
+  let loaded=null;
+  if(_idb){
+    try{ loaded=await idbGet(KEY); }catch(e){ console.warn('IDB-Laden fehlgeschlagen:', e); }
+  }
+  if(!loaded){
+    try{
+      const ls=localStorage.getItem(KEY);
+      if(ls){
+        loaded=JSON.parse(ls);
+        if(_idb){ try{ await idbSet(KEY, loaded); }catch(e){ console.warn('Migration nach IDB fehlgeschlagen:', e); } }
+      }
+    }catch(e){ console.warn('localStorage-Migration fehlgeschlagen:', e); }
+  }
+  if(loaded && typeof loaded==='object') state=loaded;
+  normalizeState();
+  render();
+}
+startApp();
 </script>
 </body>
 </html>
