@@ -287,7 +287,7 @@ async function fileToData(file){
 // (= korrekten) Pixelgröße eingefügt. Dadurch sind alle Bilder im DOC gleich groß,
 // unabhängig von Kamera, Quelle oder ursprünglicher DPI-Angabe.
 async function normalizePhotoForDoc(dataUrl){
-  const PHOTO_MAX_W_CM=10.5, PHOTO_MAX_H_CM=5.2, CM_TO_PX=37.7952755906; // 96 DPI
+  const PHOTO_MAX_W_CM=6.43, PHOTO_MAX_H_CM=8.56, CM_TO_PX=37.7952755906; // 96 DPI
   const maxW=Math.round(PHOTO_MAX_W_CM*CM_TO_PX); // ~397 px
   const maxH=Math.round(PHOTO_MAX_H_CM*CM_TO_PX); // ~197 px
   try{
@@ -491,9 +491,9 @@ function protocolHtml(i,p,ai){
   // Ziel der Fotodokumentation im Word-kompatiblen DOC:
   // Bilder linksbündig, fortlaufend untereinander, unverzerrt und so skaliert,
   // dass in der Regel drei Foto-Blöcke auf eine A4-Seite passen.
-  const PHOTO_MAX_W_CM=10.5;
-  const PHOTO_MAX_H_CM=5.2;
-  const PHOTO_CAPTION_W_CM=10.5;
+  const PHOTO_MAX_W_CM=6.43;
+  const PHOTO_MAX_H_CM=8.56;
+  const PHOTO_CAPTION_W_CM=6.43;
   const CM_TO_PX=37.7952755906;
 
   function dataUrlBinary(dataUrl){
@@ -619,18 +619,18 @@ function protocolHtml(i,p,ai){
 
   return `<!doctype html><html><head><meta charset='utf-8'><style>
     @page{size:21cm 29.7cm;margin:2.5cm 2.5cm 2.5cm 2.5cm;}
-    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;text-align:justify;line-height:1.4;margin:0;color:#000;}
-    p{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;text-align:justify;margin:0 0 8pt 0;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;text-align:justify;line-height:1.15;margin:0;color:#000;}
+    p{font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;text-align:justify;margin:0 0 8pt 0;}
     table{width:100%;border-collapse:collapse;table-layout:auto;margin:0 0 10pt 0;}
     td{border:1px solid #999;padding:4.5pt 4.5pt;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;height:auto;}
     .meta-table{width:100%;border-collapse:collapse;table-layout:auto;margin:0 0 10pt 0;}
-    .meta-table td{padding:4.5pt 4.5pt;line-height:1.2;height:auto;}
+    .meta-table td{padding:4.5pt 4.5pt;line-height:1;height:auto;}
     .meta-table td:first-child{font-weight:bold;white-space:nowrap;width:1%;}
     .meta-table td:nth-child(2){width:auto;}
     .distribution-table{width:100%;border-collapse:collapse;table-layout:auto;margin-top:4pt;}
-    .red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
+    .red{border:2px solid #c00000;padding:10px;margin:8px 0;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;}
     .red ul{margin:0 0 0 18pt;padding-left:0;}
-    .red li{margin:0 0 3pt 0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.4;}
+    .red li{margin:0 0 3pt 0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;}
     h2{font-family:Arial,Helvetica,sans-serif;font-size:16pt;font-weight:bold;page-break-after:avoid;margin:0 0 8pt 0;line-height:1.2;text-align:left;}
     h3{font-family:Arial,Helvetica,sans-serif;font-size:13pt;font-weight:bold;page-break-after:avoid;margin:12pt 0 6pt 0;line-height:1.2;text-align:left;}
     h4{font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-weight:bold;page-break-after:avoid;margin:10pt 0 5pt 0;line-height:1.2;text-align:left;}
@@ -645,7 +645,7 @@ function protocolHtml(i,p,ai){
     table.photo-block td{border:0!important;padding:0;margin:0;vertical-align:top;text-align:left;}
     .photo-block{page-break-inside:avoid;margin:0 0 6pt 0;text-align:left;clear:none;}
     .photo-caption{text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
-    img.protocol-photo{border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;max-width:10.5cm;}
+    img.protocol-photo{border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;max-width:6.43cm;}
     .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
     .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
     .signature-line{border-bottom:1px solid #000;height:34pt;}
