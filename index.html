@@ -331,7 +331,7 @@ async function exportProtocol(iid){
   downloadBlob(html,fileName,'application/msword');
   toast('✅ Protokoll wurde heruntergeladen.');
 }
-async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>f.title||f.measure||`Feststellung ${fi+1}`))}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
+async function generateTexts(i,p){const fallback={bullets:i.findings.map(f=>f.title).filter(Boolean),texts:i.findings.map(f=>`Im Zuge der Begehung wurde folgende Feststellung dokumentiert: ${f.title||'Feststellung ohne Kurzbeschreibung'}. ${f.measure?`Als Maßnahme wurde festgehalten: ${f.measure}.`:''} ${f.responsible?`Verantwortlich ist ${f.responsible}.`:''} ${f.deadline?`Die Frist wurde auf den ${f.deadline} gesetzt.`:''}`),captions:i.findings.flatMap((f,fi)=>(f.photos||[]).map((_,pi)=>f.title||f.measure||`Feststellung ${fi+1}`)),headings:i.findings.map(f=>f.title||f.measure||'')}; if(!state.settings.apiKey) return fallback; try{const prompt=`Du bist Umweltfachliche Bauüberwachung (UBÜ) und erstellst Begehungsprotokolle.
 
 Schreibe sachlich, fachlich korrekt und präzise.
 
@@ -345,11 +345,21 @@ ALLGEMEINE REGELN
 - keine Vermutungen
 - objektive und neutrale Sprache
 - fachlicher Stil einer Umweltfachlichen Bauüberwachung
-- maximal 2 bis 4 Sätze pro Feststellung
+- etwa 3 bis 5 Sätze pro Feststellung, ausformuliert aber ohne Ausschweifen
 - Maßnahmen konkret benennen
 - Fristen und Verantwortlichkeiten nennen, sofern vorhanden
 - auf den Punkt formulieren
 - keine KI-typischen Formulierungen
+- offensichtliche Tipp-, Rechtschreib- und Grammatikfehler aus den Eingaben stillschweigend korrigieren
+- Fachbegriffe aus dem Umwelt- und Naturschutzbereich richtig schreiben (z. B. Artnamen, Schutzzaun-Bezeichnungen, CEF-Flächen)
+- dabei ausschließlich die Schreibweise korrigieren, niemals den inhaltlichen Sinn verändern oder Angaben hinzuerfinden
+- bei unklaren Abkürzungen oder Eigennamen die Eingabe unverändert übernehmen
+- umgangssprachliche, saloppe oder verkürzte Eingaben in eine fachlich korrekte und sachliche Formulierung übertragen
+- den gemeinten Sachverhalt dabei beibehalten, nur die Ausdrucksweise fachlich anheben
+- Beispiele:
+  Eingabe "Reptilienschutzzaun umgefahren" wird zu "Der Reptilienschutzzaun wurde durch Befahren beschädigt."
+  Eingabe "Bagger steht mitten in der Schutzfläche" wird zu "Im Bereich der Schutzfläche wurde ein abgestelltes Baufahrzeug festgestellt."
+  Eingabe "Müll überall rumliegen" wird zu "Im Baufeld wurden ungeordnete Abfallablagerungen festgestellt."
 
 NICHT SCHREIBEN
 
@@ -387,7 +397,7 @@ Beispiel:
 
 FLIESSTEXT
 
-Zu jeder Feststellung einen kurzen fachlichen Absatz.
+Zu jeder Feststellung einen fachlichen Absatz, der den Sachverhalt verständlich ausformuliert.
 
 Aufbau:
 
@@ -397,14 +407,16 @@ Aufbau:
 
 Regeln:
 
-- maximal 2 bis 4 Sätze
+- etwa 3 bis 5 Sätze
+- den Sachverhalt nachvollziehbar darstellen und fachlich einordnen
+- die Maßnahme begründen, sofern sinnvoll
 - keine Wiederholung des Mängelkastens
-- sachlich und prägnant
+- sachlich und gut lesbar, ausformuliert aber ohne Floskeln oder Ausschweifen
 - keine allgemeinen Einleitungen
 
 Beispiel:
 
-Im Bereich Maststandort 5 wurde eine Beschädigung des Reptilienschutzzauns festgestellt. Die Funktion des Zauns ist dadurch eingeschränkt. Der Zaun ist zeitnah fachgerecht instand zu setzen.
+Im Bereich Maststandort 5 wurde eine Beschädigung des Reptilienschutzzauns auf einer Länge von etwa 5 m festgestellt. Durch die schadhafte Stelle ist die Schutzwirkung des Zauns nicht mehr gewährleistet, sodass Reptilien in den Baubereich gelangen können. Zur Wiederherstellung der Funktion ist der Zaun zeitnah fachgerecht instand zu setzen und anschließend auf seine Dichtigkeit zu kontrollieren.
 
 FOTODOKUMENTATION
 
@@ -435,6 +447,25 @@ SONDERN
 "Kontrollierter Amphibienschutzzaun entlang des Baufeldes."
 "Umgesetzte Schlingnatter innerhalb der CEF-Fläche."
 
+ÜBERSCHRIFTEN
+
+Erstelle für jede Feststellung eine sehr kurze Überschrift aus 2 bis 4 Wörtern.
+
+Regeln:
+
+- nur ein knappes Schlagwort, keine vollständigen Sätze
+- kein abschließender Punkt
+- das Kernthema der Feststellung benennen
+- sachlich und fachlich
+- keine Floskeln, keine Wiederholung des Fließtextes
+- eigenständig formuliert, nicht wörtlich die Eingabe übernehmen
+
+Beispiel:
+
+Eingabe "Der Reptilienschutzzaun ist auf 5 m beschädigt" wird zu "Beschädigter Reptilienschutzzaun"
+Eingabe "Bodenmieten liegen außerhalb der Lagerfläche" wird zu "Bodenlagerung außerhalb Lagerfläche"
+Eingabe "Großer Wiesenknopf auf Fläche 9753 gefunden" wird zu "Nachweis Großer Wiesenknopf"
+
 WICHTIG
 
 Die Texte sollen so wirken, als wären sie von einem erfahrenen Umweltfachlichen Bauüberwacher erstellt worden.
@@ -446,7 +477,8 @@ Antworte ausschließlich als gültiges JSON im folgenden Format:
 {
   "bullets": [],
   "texts": [],
-  "captions": []
+  "captions": [],
+  "headings": []
 }
 
 Projekt:
@@ -609,16 +641,18 @@ function protocolHtml(i,p,ai){
       ).join('')
     : '';
 
-  const findingPhotos=(i.findings||[]).map((f,fi)=>
-    '<div class="finding-block">'+
-      '<h4 class="finding-heading"><u>Feststellung '+(fi+1)+': '+esc(f.title)+'</u></h4>'+
-      (f.photos||[]).map(ph=>{
-        const rawCaption=(ai.captions||[])[captionIndex++];
-        const caption='Abbildung '+(figIndex++)+': '+esc(cleanFigureCaption(rawCaption,f,fi))+' (Eigene Aufnahme am '+esc(i.date)+')';
-        return photoBlockHtml(ph.data,caption);
-      }).join('')+
-    '</div>'
-  ).join('');
+  const findingPhotos=(i.findings||[]).map((f,fi)=>{
+      const photos=(f.photos||[]);
+      if(!photos.length) return '';
+      return '<div class="finding-block">'+
+        '<h4 class="finding-heading"><u>Feststellung '+(fi+1)+': '+esc(((ai.headings||[])[fi]||f.title||f.measure||'').toString().trim())+'</u></h4>'+
+        photos.map(ph=>{
+          const rawCaption=(ai.captions||[])[captionIndex++];
+          const caption='Abbildung '+(figIndex++)+': '+esc(cleanFigureCaption(rawCaption,f,fi))+' (Eigene Aufnahme am '+esc(i.date)+')';
+          return photoBlockHtml(ph.data,caption);
+        }).join('')+
+      '</div>';
+    }).join('');
 
   return `<!doctype html><html><head><meta charset='utf-8'><style>
     @page{size:21cm 29.7cm;margin:2.5cm 2.5cm 2.5cm 2.5cm;}
@@ -695,11 +729,11 @@ function protocolHtml(i,p,ai){
     </table>
     <h3>Dieses Protokoll wurde verteilt an:</h3>
     <table class='distribution-table'>${distributionRows}</table>
-    <div class='photo-section'>
+    ${(inspectionPhotos+findingPhotos).trim() ? `<div class='photo-section'>
       <h3>4. Fotodokumentation</h3>
       ${inspectionPhotos}
       ${findingPhotos}
-    </div>
+    </div>` : ''}
   </body></html>`;
 }
 
