@@ -146,7 +146,7 @@ function distRow(pid,idx,d){return `<div class="grid list-item">${rawInp('Name',
 function addProject(){state.projects.push({id:uid(),name:'',number:'',client:'',location:'',notes:'',distribution:[],standardParticipants:[],open:true});render(); toast('Neues Projekt angelegt – bitte ausfüllen und speichern.')} function setProj(id,k,v){byId(state.projects,id)[k]=v;save()} function delProj(id){state.projects=state.projects.filter(p=>p.id!==id);render()} function addDist(pid){const p=byId(state.projects,pid); p.open=true; p.distribution.push({name:'',company:'',role:'',email:''});render(); toast('Neuer Verteiler-Eintrag angelegt – bitte ausfüllen und speichern.')} function setDist(pid,i,k,v){byId(state.projects,pid).distribution[i][k]=v;save()} function delDist(pid,i){byId(state.projects,pid).distribution.splice(i,1);render()} function toggleStdPart(pid,eid){let a=byId(state.projects,pid).standardParticipants||[];a.includes(eid)?a.splice(a.indexOf(eid),1):a.push(eid);byId(state.projects,pid).standardParticipants=a;render()}
 function newInspectionStart(){page='inspections'; state.activeInspectionId=null; renderNewInspection()}
 function inspections(){if(state.activeInspectionId) return editInspection(state.activeInspectionId); document.getElementById('app').innerHTML=`<button class="big" onclick="renderNewInspection()"><span class="plus">＋</span>Neue Begehung</button><div class="card"><h2>Alle Begehungen</h2>${state.inspections.slice().reverse().map(inspectionCard).join('')||'<p class="muted">Noch keine Begehung.</p>'}</div>`}
-function inspectionCard(i){const p=byId(state.projects,i.projectId)||{};return `<details class="list-item"><summary class="emp-summary"><span>${esc(i.date)} – ${esc(p.name)||'Projekt unbekannt'}</span><span class="muted">${esc(i.topic)}</span></summary><div style="margin-top:10px"><p class="muted">Uhrzeit: ${esc(i.time)} · Witterung: ${esc(i.weather)} · Feststellungen: ${(i.findings||[]).length}</p><div class="row"><button class="secondary" onclick="openInspection('${i.id}')">Öffnen</button><button class="secondary" onclick="editInspectionDetails('${i.id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${i.id}')">🗑 Begehung löschen</button><button class="secondary" onclick="exportProtocol('${i.id}')">📄 Protokoll erstellen</button><button class="secondary" data-action="save-github" onclick="saveProtocolToGithub('${i.id}', this)">☁ Nach GitHub speichern</button></div></div></details>`}
+function inspectionCard(i){const p=byId(state.projects,i.projectId)||{};return `<details class="list-item"><summary class="emp-summary"><span>${esc(i.date)} – ${esc(p.name)||'Projekt unbekannt'}</span><span class="muted">${esc(i.topic)}</span></summary><div style="margin-top:10px"><p class="muted">Uhrzeit: ${esc(i.time)} · Witterung: ${esc(i.weather)} · Feststellungen: ${(i.findings||[]).length}</p><div class="row"><button class="secondary" onclick="openInspection('${i.id}')">Öffnen</button><button class="secondary" onclick="editInspectionDetails('${i.id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${i.id}')">🗑 Begehung löschen</button><button class="secondary" data-action="save-github" onclick="saveProtocolToGithub('${i.id}', this)">📄 Protokoll erstellen</button><button class="secondary" onclick="sharePhotosToLibrary('${i.id}', this)">📷 Fotos in Mediathek sichern</button></div></div></details>`}
 function openInspection(id){state.activeInspectionId=id;page='inspections';render()}
 function deleteInspection(id){const i=byId(state.inspections,id);const p=byId(state.projects,i?.projectId)||{};if(!confirm(`Begehung vom ${i?.date||''} – ${p.name||'Projekt'} wirklich löschen?
 
@@ -224,7 +224,7 @@ async function autoWeatherFor(inputId, feedbackId){
 }
 
 async function createInspection(){const projectId=document.getElementById('newProject').value;if(!projectId){alert('Bitte Projekt auswählen.');return}let topic=document.getElementById('newTopic').value;const other=document.getElementById('newOtherTopic').value.trim(); if(topic==='Anderes Thema'){ if(!other){alert('Bitte die Bezeichnung des anderen Themas eingeben.'); return;} topic=other; } const photos=[...tempInspectionPhotos]; const files=[...document.getElementById('inspectionFiles').files]; for(const file of files){photos.push({name:file.name,data:await fileToData(file),caption:''})} const i={id:uid(),projectId,topic,date:document.getElementById('newDate').value,time:document.getElementById('newTime').value,weather:document.getElementById('newWeather').value,protocolLead:document.getElementById('newProtocolLead').value,remark:document.getElementById('newRemark').value,participants:[...tempParts],photos,findings:[],status:'offen'}; state.inspections.push(i); state.activeInspectionId=i.id; tempInspectionPhotos=[]; render(); toast('✅ Begehung erfolgreich angelegt')}
-function editInspection(id){const i=byId(state.inspections,id); if(!i){state.activeInspectionId=null; render(); return;} const p=byId(state.projects,i.projectId)||{};document.getElementById('app').innerHTML=`<div class="card"><button class="secondary" style="width:100%;margin-bottom:14px;font-weight:700;font-size:1.02rem" onclick="state.activeInspectionId=null;render()">⬅ Zur Begehungsliste</button><h2>${esc(p.name)}</h2><p class="muted">Begehung vom ${esc(i.date)} ${esc(i.time)} · ${esc(i.topic)}</p><div class="photos">${(i.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto Begehung">`).join('')}</div><div class="row"><button onclick="addFinding('${id}')">+ Feststellung hinzufügen</button><button class="secondary" onclick="editInspectionDetails('${id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${id}')">🗑 Begehung löschen</button><button class="secondary" onclick="exportProtocol('${id}')">Protokoll erstellen</button><button class="secondary" data-action="save-github" onclick="saveProtocolToGithub('${id}', this)">☁ Nach GitHub speichern</button></div></div><div class="card"><h2>Feststellungen (${(i.findings||[]).length})</h2>${(i.findings||[]).map((f,idx)=>findingCard(id,f,idx)).join('')||'<p class="muted">Noch keine Feststellungen.</p>'}</div>`}
+function editInspection(id){const i=byId(state.inspections,id); if(!i){state.activeInspectionId=null; render(); return;} const p=byId(state.projects,i.projectId)||{};document.getElementById('app').innerHTML=`<div class="card"><button class="secondary" style="width:100%;margin-bottom:14px;font-weight:700;font-size:1.02rem" onclick="state.activeInspectionId=null;render()">⬅ Zur Begehungsliste</button><h2>${esc(p.name)}</h2><p class="muted">Begehung vom ${esc(i.date)} ${esc(i.time)} · ${esc(i.topic)}</p><div class="photos">${(i.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto Begehung">`).join('')}</div><div class="row"><button onclick="addFinding('${id}')">+ Feststellung hinzufügen</button><button class="secondary" onclick="editInspectionDetails('${id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${id}')">🗑 Begehung löschen</button><button class="secondary" data-action="save-github" onclick="saveProtocolToGithub('${id}', this)">📄 Protokoll erstellen</button><button class="secondary" onclick="sharePhotosToLibrary('${id}', this)">📷 Fotos in Mediathek sichern</button></div></div><div class="card"><h2>Feststellungen (${(i.findings||[]).length})</h2>${(i.findings||[]).map((f,idx)=>findingCard(id,f,idx)).join('')||'<p class="muted">Noch keine Feststellungen.</p>'}</div>`}
 function editInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const standard=['Baustellenbegehung','Begleitung von Arbeiten','Kartierung']; const isOther=!standard.includes(i.topic); tempParts=[...(i.participants||[])]; document.getElementById('app').innerHTML=`<div class="card"><h2>Begehung bearbeiten</h2><label>Projekt</label><select id="editProject" onchange="prefillEditParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}" ${p.id===i.projectId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="editTopic" onchange="toggleOtherTopic()"><option ${!isOther&&i.topic==='Baustellenbegehung'?'selected':''}>Baustellenbegehung</option><option ${!isOther&&i.topic==='Begleitung von Arbeiten'?'selected':''}>Begleitung von Arbeiten</option><option ${!isOther&&i.topic==='Kartierung'?'selected':''}>Kartierung</option><option ${isOther?'selected':''}>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:${isOther?'block':'none'}"><label>Bezeichnung des Themas</label><input id="editOtherTopic" type="text" value="${isOther?escAttr(i.topic):''}" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="editDate" type="date" value="${escAttr(i.date)}"></div><div><label>Uhrzeit</label><input id="editTime" type="text" value="${escAttr(i.time)}"></div><div><label>Witterung</label><input id="editWeather" type="text" value="${escAttr(i.weather)}"><button type="button" class="secondary" onclick="autoWeatherFor('editWeather','weatherFeedback')">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="editProtocolLead" type="text" value="${escAttr(i.protocolLead)}"></div></div><label>Bemerkung</label><textarea id="editRemark">${esc(i.remark)}</textarea><h3>Teilnehmer</h3><div id="newParts">${employeeCheckboxes(tempParts,'toggleEditPart(')}</div><h3>Fotos zur Begehung</h3><div class="photos">${(i.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removeInspectionPhoto('${id}',${ix})">Foto löschen</button></div>`).join('')}</div><label>Aus Dateien / Fotomediathek hinzufügen</label><input type="file" accept="image/*" multiple id="editInspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="editInspectionCamera" onchange="addInspectionCameraPhotos('${id}',this)"><div class="row"><button onclick="saveInspectionDetails('${id}')">Begehung speichern</button><button class="secondary" onclick="openInspection('${id}')">Abbrechen</button></div></div>`}
 function prefillEditParticipants(){const pid=document.getElementById('editProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])]; if(!tempParts.length && state.employees[0]) tempParts=[state.employees[0].id]; document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
 function toggleEditPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.indexOf(eid),1):tempParts.push(eid);document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
@@ -1087,6 +1087,64 @@ function resetGithubButton(button){
   button.disabled=false;
 }
 
+// Stellt alle Fotos einer Begehung über das iOS-Teilen-Menü bereit, damit der
+// Nutzer sie mit einem Tipp in die Fotomediathek sichern kann. Eine Web-App darf
+// aus Sicherheitsgründen nicht selbst in die Mediathek schreiben; das Teilen-Menü
+// ist der offizielle Weg. Das Teilen mehrerer Dateien wird nicht von jedem Gerät
+// gleich gut unterstützt, daher mit Einzeldatei-Fallback.
+function dataUrlToFile(dataUrl, filename){
+  const s=String(dataUrl||'');
+  const comma=s.indexOf(',');
+  const meta=s.slice(0,comma);
+  const b64=comma>=0 ? s.slice(comma+1) : s;
+  const mime=(meta.match(/data:([^;]+)/)||[])[1] || 'image/jpeg';
+  const bin=atob(b64);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new File([bytes], filename, {type:mime});
+}
+function collectAllPhotos(i){
+  const out=[];
+  (i.photos||[]).forEach((ph,ix)=>{ if(ph&&ph.data) out.push(ph.data); });
+  (i.findings||[]).forEach(f=>{ (f.photos||[]).forEach(ph=>{ if(ph&&ph.data) out.push(ph.data); }); });
+  return out;
+}
+async function sharePhotosToLibrary(iid, btn){
+  const i=byId(state.inspections,iid);
+  if(!i){alert('Begehung nicht gefunden.'); return;}
+  const datas=collectAllPhotos(i);
+  if(!datas.length){alert('Diese Begehung enthält keine Fotos.'); return;}
+  const dateTag=(i.date||'').replace(/[^0-9]/g,'') || 'foto';
+  const files=datas.map((d,ix)=>dataUrlToFile(d, 'Begehung_'+dateTag+'_'+(ix+1)+'.jpg'));
+
+  // 1) Bevorzugt: mehrere Dateien auf einmal teilen, wenn das Gerät es kann.
+  try{
+    if(navigator.canShare && navigator.canShare({files})){
+      await navigator.share({files, title:'Begehungsfotos', text:'Begehungsfotos'});
+      return;
+    }
+  }catch(e){
+    if(e && e.name==='AbortError') return; // Nutzer hat abgebrochen
+    console.warn('Teilen mehrerer Dateien fehlgeschlagen, versuche einzeln:', e);
+  }
+
+  // 2) Fallback: Dateien nacheinander einzeln teilen.
+  let shared=0;
+  for(let ix=0; ix<files.length; ix++){
+    try{
+      if(navigator.canShare && navigator.canShare({files:[files[ix]]})){
+        await navigator.share({files:[files[ix]], title:'Begehungsfoto'});
+        shared++;
+      }
+    }catch(e){
+      if(e && e.name==='AbortError') break;
+      console.warn('Einzelfoto teilen fehlgeschlagen:', e);
+    }
+  }
+  if(shared===0){
+    alert('Das Teilen von Fotos wird auf diesem Gerät/Browser leider nicht unterstützt. Du kannst die Fotos stattdessen aus dem GitHub-Repository im Ordner „bilder“ herunterladen.');
+  }
+}
 async function saveProtocolToGithub(iid, triggerButton){
   const button=getGithubSaveButton(triggerButton);
   try{
@@ -1287,7 +1345,7 @@ async function restoreAppDataFromGithub(triggerButton){
 
 async function saveToGithub(){
   if(state.activeInspectionId) return saveProtocolToGithub(state.activeInspectionId);
-  alert('Bitte öffne zuerst eine Begehung und klicke dort auf „Nach GitHub speichern“.');
+  alert('Bitte öffne zuerst eine Begehung und klicke dort auf „Protokoll erstellen“.');
 }
 
 function exportData(){downloadBlob(JSON.stringify(state,null,2),'ubb_daten.json','application/json')} async function importData(file){if(!file)return;state=JSON.parse(await file.text());save();render()} function downloadBlob(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
