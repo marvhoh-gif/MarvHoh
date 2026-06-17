@@ -122,7 +122,7 @@ function company(){const c=state.company||{}; const cname=esc(c.name||'Eigene Fi
 
 function dataServer(){document.getElementById('app').innerHTML=`
  <div class="card"><h2>OpenAI API</h2><p class="muted">Der API-Key wird nur lokal in deinem Browser gespeichert und nur für die KI-Textgenerierung verwendet.</p>${state.settings.apiKeySaved ? `<div class="success">✓ API-Key gespeichert</div><button class="secondary" onclick="state.settings.apiKeySaved=false; render();">API-Key ändern</button>` : `<label>OpenAI API-Key</label><input type="password" id="apiKeyInput" placeholder="OpenAI API-Key eingeben" autocomplete="off">`}${inp('Modell','settings.model')}<div class="row"><button class="secondary" onclick="saveApiSettings(event)">API speichern</button>${flashTarget['api-settings']?`<span class="inline-success">${flashTarget['api-settings']}</span>`:''}</div></div>
- <div class="card"><h2>Daten sichern / wiederherstellen</h2><p class="muted">Sichert Firma, Mitarbeiter, Projekte, Begehungen, Feststellungen und lokal gespeicherte Fotos als JSON-Datei.</p><h3>GitHub-Datensicherung</h3><p class="muted">Die gesamten App-Daten werden beim Protokoll-Upload automatisch unter <b>App-Daten/ubb_daten.json</b> im GitHub-Repository gesichert. Mit dem Button unten kannst du diese Daten auf einem anderen Gerät direkt wiederherstellen.</p><div class="row"><button class="secondary" id="loadAppDataGithubBtn" onclick="restoreAppDataFromGithub(this)">↩ App-Daten aus GitHub wiederherstellen</button>${flashTarget['github-app-data']?`<span class="inline-success">${flashTarget['github-app-data']}</span>`:''}</div><p class="warn">Wichtig: Wiederherstellen aus GitHub ersetzt die aktuell im Browser gespeicherten Daten.</p><h3>Lokale Sicherungsdatei</h3><p class="muted">Zusätzliche Notfall-Sicherung als Datei auf deinem Gerät.</p><div class="row"><button class="secondary" onclick="exportData()">💾 Lokale JSON-Datei sichern</button><label style="margin:0"><span class="secondary" style="display:inline-block;border-radius:12px;padding:12px 14px;font-weight:700;background:#eef0f3;color:#17202a;cursor:pointer">📂 Lokale JSON-Datei wiederherstellen</span><input type="file" accept="application/json" onchange="importData(this.files[0])" style="display:none"></label></div><p class="warn">Wichtig: Auch die lokale Wiederherstellung ersetzt die aktuell im Browser gespeicherten Daten.</p>${githubConfigPanel()}</div>`; bindInputs()}
+ <div class="card"><h2>Daten sichern / wiederherstellen</h2><p class="muted">Sichert Firma, Mitarbeiter, Projekte, Begehungen, Feststellungen und lokal gespeicherte Fotos als JSON-Datei.</p><h3>GitHub-Datensicherung</h3><p class="muted">Beim Protokoll-Upload werden automatisch alle Textdaten (Firma, Mitarbeiter, Projekte, Begehungen, Feststellungen) unter <b>App-Daten/ubb_daten.json</b> im GitHub-Repository gesichert. Die Fotos sind aus Größengründen nicht in dieser Datei enthalten – sie liegen einzeln im <b>bilder</b>-Ordner jedes Protokolls. Mit dem Button unten kannst du die Textdaten auf einem anderen Gerät wiederherstellen.</p><div class="row"><button class="secondary" id="loadAppDataGithubBtn" onclick="restoreAppDataFromGithub(this)">↩ App-Daten aus GitHub wiederherstellen</button>${flashTarget['github-app-data']?`<span class="inline-success">${flashTarget['github-app-data']}</span>`:''}</div><p class="warn">Wichtig: Wiederherstellen aus GitHub ersetzt die aktuell im Browser gespeicherten Daten.</p><h3>Lokale Sicherungsdatei</h3><p class="muted">Zusätzliche Notfall-Sicherung als Datei auf deinem Gerät.</p><div class="row"><button class="secondary" onclick="exportData()">💾 Lokale JSON-Datei sichern</button><label style="margin:0"><span class="secondary" style="display:inline-block;border-radius:12px;padding:12px 14px;font-weight:700;background:#eef0f3;color:#17202a;cursor:pointer">📂 Lokale JSON-Datei wiederherstellen</span><input type="file" accept="application/json" onchange="importData(this.files[0])" style="display:none"></label></div><p class="warn">Wichtig: Auch die lokale Wiederherstellung ersetzt die aktuell im Browser gespeicherten Daten.</p>${githubConfigPanel()}</div>`; bindInputs()}
 
 
 function saveApiSettings(ev){
@@ -1177,17 +1177,29 @@ function resetPlainButton(button){
 
 function buildAppDataBackup(){
   // Keine geheimen Schlüssel in die GitHub-Sicherungsdatei schreiben.
-  // Projektdaten, Mitarbeiter, Begehungen, Feststellungen und Fotos bleiben erhalten.
+  // Fotos werden NICHT in diese zentrale Textsicherung geschrieben, da die Datei
+  // sonst zu groß für die GitHub-Schnittstelle wird. Die Fotos liegen ohnehin
+  // einzeln im Bilder-Ordner jedes Protokoll-Uploads und lokal in IndexedDB.
+  // Die Foto-Einträge bleiben als leere Platzhalter erhalten, damit die
+  // Anzahl/Struktur sichtbar bleibt; die schweren Bilddaten werden entfernt.
   const data=JSON.parse(JSON.stringify(state));
   if(data.settings){
     data.settings.apiKey='';
     data.settings.apiKeySaved=false;
   }
+  const stripPhotos=arr=>{ if(Array.isArray(arr)) arr.forEach(ph=>{ if(ph) ph.data=''; }); };
+  if(Array.isArray(data.inspections)){
+    data.inspections.forEach(insp=>{
+      stripPhotos(insp.photos);
+      if(Array.isArray(insp.findings)) insp.findings.forEach(f=>stripPhotos(f.photos));
+    });
+  }
   return {
-    backupVersion:1,
+    backupVersion:2,
     erstellt:new Date().toISOString(),
     app:'UBB Begehungsprotokoll',
     storageKey:KEY,
+    fotosEnthalten:false,
     daten:data
   };
 }
@@ -1235,6 +1247,26 @@ async function restoreAppDataFromGithub(triggerButton){
     if(!restored || typeof restored!=='object' || !Array.isArray(restored.projects) || !Array.isArray(restored.inspections)){
       throw new Error('Die Datei App-Daten/ubb_daten.json passt nicht zur App-Datenstruktur.');
     }
+    // Die zentrale Sicherung enthält keine Fotodaten (zu groß für GitHub).
+    // Damit beim Wiederherstellen auf DIESEM Gerät vorhandene lokale Fotos nicht
+    // verloren gehen, werden sie aus dem aktuellen Stand anhand der IDs wieder
+    // in die wiederhergestellten Daten eingesetzt, wo dort keine Fotodaten stehen.
+    try{
+      const oldById={};
+      (state.inspections||[]).forEach(insp=>{ oldById[insp.id]=insp; });
+      const mergePhotos=(newArr,oldArr)=>{
+        if(!Array.isArray(newArr)||!Array.isArray(oldArr)) return;
+        newArr.forEach((ph,ix)=>{ if(ph && (!ph.data || ph.data==='') && oldArr[ix] && oldArr[ix].data){ ph.data=oldArr[ix].data; } });
+      };
+      (restored.inspections||[]).forEach(insp=>{
+        const old=oldById[insp.id]; if(!old) return;
+        mergePhotos(insp.photos, old.photos);
+        if(Array.isArray(insp.findings)){
+          const oldF={}; (old.findings||[]).forEach(f=>{ oldF[f.id]=f; });
+          insp.findings.forEach(f=>{ const of=oldF[f.id]; if(of) mergePhotos(f.photos, of.photos); });
+        }
+      });
+    }catch(mErr){ console.warn('Foto-Zusammenführung beim Wiederherstellen übersprungen:', mErr); }
     state=restored;
     if(!state.settings) state.settings={apiKey:'',apiKeySaved:false,model:'gpt-4o-mini'};
     if(state.settings.apiKeySaved===undefined) state.settings.apiKeySaved=!!state.settings.apiKey;
