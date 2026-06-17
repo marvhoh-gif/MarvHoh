@@ -584,14 +584,19 @@ function protocolHtml(i,p,ai){
     // Bildgröße) UND cm im Style. Beide ergeben dieselbe physikalische Größe, sodass
     // Word unabhängig von DPI-Metadaten konsistent skaliert.
     const imgStyle='width:'+w+';height:'+h+';max-width:'+w+';max-height:'+h+';border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;';
-    return '<div class="photo-block" style="margin:0 0 4pt 0;text-align:left;page-break-inside:auto;break-inside:auto;clear:none;">'+
-      '<p class="photo-img-p" style="margin:0 0 2pt 0;text-align:left;line-height:1;page-break-after:auto;">'+
+    // Bild und Bildunterschrift werden in eine einspaltige, rahmenlose Tabelle gelegt.
+    // Tabellenzellen erzwingen in Word ein sauberes Stapeln (Bild oben, Unterschrift
+    // darunter). Ohne diese Struktur behandelt Word das <img> als Zeilenelement und
+    // die Unterschrift rutscht seitlich neben den unteren Bildrand.
+    return '<table class="photo-block" cellspacing="0" cellpadding="0" border="0" '+
+        'style="border-collapse:collapse;border:0;margin:0 0 6pt 0;width:'+w+';table-layout:fixed;page-break-inside:avoid;">'+
+      '<tr><td style="border:0;padding:0;margin:0;text-align:left;vertical-align:top;width:'+w+';">'+
         '<img class="protocol-photo" src="'+imageData+'" width="'+size.wPx+'" height="'+size.hPx+'" style="'+imgStyle+'">'+
-      '</p>'+
-      '<p class="photo-caption" style="margin:0 0 4pt 0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;page-break-before:auto;">'+
-        '<i>'+captionText+'</i>'+
-      '</p>'+
-    '</div>';
+      '</td></tr>'+
+      '<tr><td style="border:0;padding:2pt 0 0 0;margin:0;text-align:left;vertical-align:top;width:'+w+';">'+
+        '<span class="photo-caption" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;"><i>'+captionText+'</i></span>'+
+      '</td></tr>'+
+    '</table>';
   }
 
   const inspectionPhotos=(i.photos||[]).length
@@ -602,7 +607,7 @@ function protocolHtml(i,p,ai){
 
   const findingPhotos=(i.findings||[]).map((f,fi)=>
     '<div class="finding-block">'+
-      '<h4>Feststellung '+(fi+1)+': '+esc(f.title)+'</h4>'+
+      '<h4 class="finding-heading"><u>Feststellung '+(fi+1)+': '+esc(f.title)+'</u></h4>'+
       (f.photos||[]).map(ph=>{
         const rawCaption=(ai.captions||[])[captionIndex++];
         const caption='Abbildung '+(figIndex++)+': '+esc(cleanFigureCaption(rawCaption,f,fi))+' (Eigene Aufnahme am '+esc(i.date)+')';
@@ -628,13 +633,15 @@ function protocolHtml(i,p,ai){
     h2{font-family:Arial,Helvetica,sans-serif;font-size:16pt;font-weight:bold;page-break-after:avoid;margin:0 0 8pt 0;line-height:1.2;text-align:left;}
     h3{font-family:Arial,Helvetica,sans-serif;font-size:13pt;font-weight:bold;page-break-after:avoid;margin:12pt 0 6pt 0;line-height:1.2;text-align:left;}
     h4{font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-weight:bold;page-break-after:avoid;margin:10pt 0 5pt 0;line-height:1.2;text-align:left;}
+    h4.finding-heading{font-weight:normal;text-decoration:underline;}
     .photo-section{page-break-before:auto;break-before:auto;margin:0;padding:0;}
     .photo-section h3{page-break-after:auto;margin:12pt 0 4pt 0;}
     .photo-section h4{page-break-after:auto;margin:4pt 0 3pt 0;}
     .finding-block{page-break-inside:auto;margin:0 0 4pt 0;text-align:left;}
-    .photo-block{page-break-inside:auto;break-inside:auto;margin:0 0 4pt 0;text-align:left;clear:none;}
-    .photo-img-p{margin:0 0 2pt 0!important;text-align:left;line-height:1;}
-    .photo-caption{margin:0 0 4pt 0!important;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
+    table.photo-block{width:auto!important;border:0!important;border-collapse:collapse!important;margin:0 0 6pt 0!important;page-break-inside:avoid;}
+    table.photo-block td{border:0!important;padding:0;margin:0;vertical-align:top;text-align:left;}
+    .photo-block{page-break-inside:avoid;margin:0 0 6pt 0;text-align:left;clear:none;}
+    .photo-caption{text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
     img.protocol-photo{border:0!important;outline:0;display:block;margin:0;text-align:left;mso-position-horizontal:left;max-width:10.5cm;}
     .signature-block{width:100%;margin-top:60pt;border-collapse:collapse;page-break-inside:avoid;table-layout:fixed;}
     .signature-block td{border:0;padding:6pt;vertical-align:bottom;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.2;}
