@@ -943,12 +943,18 @@ function protocolHtml(i,p,ai){
   let captionIndex=0;
   let figIndex=1;
 
-  // Teilnehmer: Protokollant immer zuerst, dann ausgewählte Kontakte als "Herr/Frau Nachname".
-  const protokollantName=esc((state.employees[0]?.name||'').trim());
+  // Teilnehmer: Protokollant immer zuerst (mit eigener Firma), dann Kontakte als "Herr/Frau Nachname (Firma)".
+  const eigeneFirma=String(state.company?.name||'').trim();
+  const protName=String(state.employees[0]?.name||'').trim();
+  const protokollantName=protName ? esc(protName+(eigeneFirma?' ('+eigeneFirma+')':'')) : '';
   const teilnehmerKontakte=(i.participants||[])
     .map(id=>contactById(id))
     .filter(Boolean)
-    .map(c=>esc(contactProtocolName(c)));
+    .map(c=>{
+      const name=contactProtocolName(c);
+      const firma=String(c.company||'').trim();
+      return esc(name+(firma?' ('+firma+')':''));
+    });
   const participants=[protokollantName, ...teilnehmerKontakte].filter(Boolean).join('<br>');
 
   const bullets=ai.bullets?.length
