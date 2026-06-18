@@ -264,14 +264,8 @@ function pickerFocus(ns){ pickerState[ns]=pickerState[ns]||{}; pickerState[ns].o
 function pickerPick(ns,cid){ const sel=pickerSelection(ns); if(!sel.includes(cid)) sel.push(cid); pickerState[ns]={q:'',open:false}; const inp=document.getElementById('input-'+ns); if(inp) inp.value=''; pickerRefresh(ns); }
 function pickerRemove(ns,cid){ const sel=pickerSelection(ns); const ix=sel.indexOf(cid); if(ix>=0) sel.splice(ix,1); pickerRefresh(ns); }
 function pickerCreate(ns){
-  const q=(pickerState[ns]&&pickerState[ns].q||'').trim(); if(!q) return;
-  const c={id:uid(),anrede:'',name:q,company:'',role:'',open:false};
-  state.contacts.push(c);
-  const sel=pickerSelection(ns); sel.push(c.id);
-  pickerState[ns]={q:'',open:false};
-  const inp=document.getElementById('input-'+ns); if(inp) inp.value='';
-  pickerRefresh(ns);
-  toast('✅ „'+q+'" als neuer Kontakt angelegt und übernommen');
+  const q=(pickerState[ns]&&pickerState[ns].q||'').trim();
+  openContactModal(ns, q);
 }
 // Chips-Inhalt (gewählte Kontakte).
 function pickerChipsInner(ns){
@@ -300,6 +294,59 @@ function contactPicker(ns){
   // Eingabefeld bleibt dauerhaft im DOM; nur chips-/suggest-Container werden aktualisiert.
   return `<div id="picker-${ns}" class="contact-picker"><div id="chips-${ns}" style="margin-bottom:6px">${pickerChipsInner(ns)}</div><input id="input-${ns}" type="text" value="${escAttr(st.q||'')}" placeholder="${placeholder}" oninput="pickerInput('${ns}',this.value)" onfocus="pickerFocus('${ns}')" autocomplete="off"><div id="suggest-${ns}">${pickerSuggestInner(ns)}</div></div>`;
 }
+
+// ---- Modal zum vollständigen Anlegen eines Kontakts (Anrede, Name, Firma, Funktion) ----
+let contactModalNs=null; // an welchen Picker der neue Kontakt übergeben wird
+function openContactModal(ns, prefillName){
+  contactModalNs=ns;
+  const anredeOpts=['','Herr','Frau'].map(o=>`<option value="${escAttr(o)}">${o||'—'}</option>`).join('');
+  const overlay=document.createElement('div');
+  overlay.id='contactModalOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.25);max-height:90vh;overflow:auto">
+    <h2 style="margin:0 0 12px">Neuen Kontakt anlegen</h2>
+    <label>Anrede</label>
+    <select id="cmAnrede">${anredeOpts}</select>
+    <label>Name</label>
+    <input id="cmName" type="text" value="${escAttr(prefillName||'')}" placeholder="z. B. Nachname, Vorname">
+    <label>Firma</label>
+    <input id="cmCompany" type="text" placeholder="optional">
+    <label>Funktion</label>
+    <input id="cmRole" type="text" placeholder="optional">
+    <div class="row" style="margin-top:14px">
+      <button type="button" class="brand" onclick="saveContactModal()">Speichern &amp; übernehmen</button>
+      <button type="button" class="secondary" onclick="closeContactModal()">Abbrechen</button>
+    </div>
+  </div>`;
+  // Klick auf den dunklen Hintergrund schließt das Fenster.
+  overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) closeContactModal(); });
+  document.body.appendChild(overlay);
+  setTimeout(()=>{ const n=document.getElementById('cmName'); if(n){ n.focus(); } },50);
+}
+function closeContactModal(){
+  const o=document.getElementById('contactModalOverlay'); if(o) o.remove();
+  contactModalNs=null;
+}
+function saveContactModal(){
+  const ns=contactModalNs;
+  const name=(document.getElementById('cmName')?.value||'').trim();
+  if(!name){ alert('Bitte einen Namen eingeben.'); return; }
+  const anrede=document.getElementById('cmAnrede')?.value||'';
+  const company=(document.getElementById('cmCompany')?.value||'').trim();
+  const role=(document.getElementById('cmRole')?.value||'').trim();
+  const c={id:uid(),anrede,name,company,role,open:false};
+  state.contacts.push(c);
+  if(ns){
+    const sel=pickerSelection(ns); if(!sel.includes(c.id)) sel.push(c.id);
+    pickerState[ns]={q:'',open:false};
+    const inp=document.getElementById('input-'+ns); if(inp) inp.value='';
+  }
+  save();
+  closeContactModal();
+  if(ns){ pickerUpdateChips(ns); pickerUpdateSuggest(ns); }
+  toast('✅ Kontakt „'+name+'" angelegt und übernommen');
+}
+
 
 // Excel-Import: SheetJS bei Bedarf nachladen, Überschriftenzeile (Name/Firma/Funktion) selbst finden.
 function ensureSheetJs(){
