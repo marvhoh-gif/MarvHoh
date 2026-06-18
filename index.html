@@ -28,11 +28,28 @@ const PHOTO_MAX_W_CM=6.43;   // maximale Bildbreite im DOC
 const PHOTO_MAX_H_CM=8.56;   // maximale Bildhöhe im DOC
 const CM_TO_PX=37.7952755906; // Umrechnung cm -> px bei 96 DPI
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function defaultState(){return {company:{name:'',address:'',phone:'',email:'',website:'',open:true},employees:[],projects:[],inspections:[],settings:{apiKey:'',apiKeySaved:false,model:'gpt-4o-mini'},activeInspectionId:null};}
+function defaultState(){return {company:{name:'',address:'',phone:'',email:'',website:'',open:true},employees:[],contacts:[],projects:[],inspections:[],settings:{apiKey:'',apiKeySaved:false,model:'gpt-4o-mini'},activeInspectionId:null};}
 let state=defaultState();
 function normalizeState(){
   if(state.company && state.company.open===undefined) state.company.open = !state.company.name;
   if(state.settings && state.settings.apiKeySaved===undefined) state.settings.apiKeySaved = !!state.settings.apiKey;
+  if(!Array.isArray(state.contacts)) state.contacts=[];
+  // Migration: alte Verteiler-Einträge (Objekte) zu zentralen Kontakten + IDs umwandeln.
+  (state.projects||[]).forEach(p=>{
+    if(Array.isArray(p.distribution)){
+      p.distribution=p.distribution.map(entry=>{
+        if(entry && typeof entry==='object'){
+          // Passenden Kontakt suchen oder neu anlegen.
+          const name=String(entry.name||'').trim();
+          if(!name) return null;
+          let c=state.contacts.find(x=>String(x.name||'').trim().toLowerCase()===name.toLowerCase() && String(x.company||'').trim().toLowerCase()===String(entry.company||'').trim().toLowerCase());
+          if(!c){ c={id:uid(),anrede:'',name,company:String(entry.company||'').trim(),role:String(entry.role||'').trim(),open:false}; state.contacts.push(c); }
+          return c.id;
+        }
+        return entry; // bereits eine ID
+      }).filter(Boolean);
+    }
+  });
 }
 let page='home';
 let flashTarget={};
@@ -114,14 +131,30 @@ function nav(){const tabs=[['home','Start'],['projects','Projekte'],['inspection
 function toggleMoreMenu(ev){ if(ev) ev.stopPropagation(); const m=document.getElementById('moreMenu'); if(m) m.classList.toggle('hidden'); }
 function closeMoreMenu(){ const m=document.getElementById('moreMenu'); if(m) m.classList.add('hidden'); }
 document.addEventListener('click', e=>{ const m=document.getElementById('moreMenu'); if(!m || m.classList.contains('hidden')) return; if(!e.target.closest('header')) closeMoreMenu(); });
+// Delegierter Listener für Kontakt-Aktionen (zuverlässig auch auf iPhone/Homescreen-App).
+document.addEventListener('click', e=>{
+  const el=e.target.closest('[data-contact-action]');
+  if(!el) return;
+  const action=el.getAttribute('data-contact-action');
+  const id=el.getAttribute('data-contact-id');
+  if(!id) return;
+  if(action==='toggle') toggleContact(id);
+  else if(action==='save') saveContact(id);
+  else if(action==='delete') delContact(id);
+});
 function render(){save();nav();({home,company,dataServer,projects,inspections}[page]||home)()}
 function home(){const open=state.inspections.filter(i=>i.status!=='abgeschlossen').length;document.getElementById('app').innerHTML=`
   <button class="big" onclick="newInspectionStart()"><span class="plus">＋</span>Neue Begehung</button>
-  <div class="card"><h2>Übersicht</h2><p class="muted">Offene Begehungen: ${open}</p><p class="muted">Projekte: ${state.projects.length} · Mitarbeiter: ${state.employees.length}</p></div>
+  <div class="card"><h2>Übersicht</h2><p class="muted">Offene Begehungen: ${open}</p><p class="muted">Projekte: ${state.projects.length} · Kontakte: ${state.contacts.length}</p></div>
   <div class="card"><h2>Letzte Begehungen</h2>${state.inspections.slice(-5).reverse().map(i=>inspectionCard(i)).join('')||'<p class="muted">Noch keine Begehung angelegt.</p>'}</div>`}
 function company(){const c=state.company||{}; const cname=esc(c.name||'Eigene Firma'); const csaved=flashTarget['company']?`<span class="inline-success">${flashTarget['company']}</span>`:''; document.getElementById('app').innerHTML=`<details class="card" ${c.open?'open':''} ontoggle="state.company.open=this.open;save()"><summary class="emp-summary"><h2 style="margin:0">${cname} <span class="check">✓</span></h2>${csaved}</summary>
  <div style="margin-top:12px">${inp('Firmenname','company.name')} ${ta('Anschrift','company.address')} <div class="grid">${inp('Telefon','company.phone')}${inp('E-Mail','company.email')}${inp('Website','company.website')}</div><div class="row"><button class="secondary" onclick="saveCompany(event)">Firma speichern</button>${flashTarget['company-btn']?`<span class="inline-success">${flashTarget['company-btn']}</span>`:''}</div></div></details>
- <div class="card"><h2>Mitarbeiter (${state.employees.length})</h2><div id="emplist">${state.employees.map(empCard).join('')||'<p class="muted">Noch keine Mitarbeiter.</p>'}</div><button onclick="addEmployee()">+ Mitarbeiter hinzufügen</button></div>`; bindInputs()}
+ <div class="card"><h2>Protokollant</h2><p class="muted">Du als Ersteller der Protokolle – immer automatisch Teilnehmer jeder Begehung.</p><div id="emplist">${state.employees.map(empCard).join('')||'<p class="muted">Noch nicht angelegt.</p>'}</div>${state.employees.length?'':'<button onclick="addEmployee()">+ Protokollant anlegen</button>'}</div>
+ <div class="card"><h2>Kontakte (${state.contacts.length})</h2><p class="muted">Personen für Teilnehmer und Verteiler – z. B. Kollegen, Auftraggeber, Behörden.</p>
+   <div class="row"><label style="margin:0"><span class="secondary" style="display:inline-block;border-radius:12px;padding:12px 14px;font-weight:700;background:#eef0f3;color:#17202a;cursor:pointer">📥 Aus Excel importieren</span><input type="file" accept=".xlsx,.xls" onchange="importContactsExcel(this)" style="display:none"></label><button onclick="addContact()">+ Kontakt anlegen</button></div>
+   <p class="muted" style="margin-top:6px">Excel-Spalten: Anrede, Name, Firma, Funktion (Überschriften werden automatisch erkannt; Anrede ist optional).</p>
+   <div id="contactlist" style="margin-top:8px">${state.contacts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'de',{sensitivity:'base'})).map(contactCard).join('')||'<p class="muted">Noch keine Kontakte.</p>'}</div>
+ </div>`; bindInputs()}
 
 function dataServer(){document.getElementById('app').innerHTML=`
  <div class="card"><h2>OpenAI API</h2><p class="muted">Der API-Key wird nur lokal in deinem Browser gespeichert und nur für die KI-Textgenerierung verwendet.</p>${state.settings.apiKeySaved ? `<div class="success">✓ API-Key gespeichert</div><button class="secondary" onclick="state.settings.apiKeySaved=false; render();">API-Key ändern</button>` : `<label>OpenAI API-Key</label><input type="password" id="apiKeyInput" placeholder="OpenAI API-Key eingeben" autocomplete="off">`}${inp('Modell','settings.model')}<div class="row"><button class="secondary" onclick="saveApiSettings(event)">API speichern</button>${flashTarget['api-settings']?`<span class="inline-success">${flashTarget['api-settings']}</span>`:''}</div></div>
@@ -138,15 +171,144 @@ function saveApiSettings(ev){
   saveArea('api-settings','✅ API gespeichert');
 }
 function saveCompany(ev){if(ev) ev.preventDefault(); state.company.open=false; saveArea('company','✅ Firma gespeichert')}
-function empCard(e){const key='emp-'+e.id; const name=esc(e.name||'Neuer Mitarbeiter'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${e.open?'open':''}><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div class="grid">${rawInp('Name',e.name,`setEmp('${e.id}','name',this.value)`)}${rawInp('Funktion',e.role,`setEmp('${e.id}','role',this.value)`)}${rawInp('E-Mail',e.email,`setEmp('${e.id}','email',this.value)`)}${rawInp('Telefon',e.phone,`setEmp('${e.id}','phone',this.value)`)}</div><div class="row"><button class="secondary" onclick="saveEmployee('${e.id}')">Mitarbeiter speichern</button><button class="danger" onclick="delEmp('${e.id}')">Löschen</button></div></details>`}
-function saveEmployee(id){const e=byId(state.employees,id); if(e) e.open=false; saveArea('emp-'+id,'✅ Mitarbeiter gespeichert')}
-function addEmployee(){state.employees.push({id:uid(),name:'',role:'Umweltfachliche Bauüberwachung',email:'',phone:'',open:true});render(); toast('Neuer Mitarbeiter angelegt – bitte ausfüllen und speichern.')} function setEmp(id,k,v){byId(state.employees,id)[k]=v;save()} function delEmp(id){state.employees=state.employees.filter(e=>e.id!==id);render()}
+function empCard(e){const key='emp-'+e.id; const name=esc(e.name||'Protokollant'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${e.open?'open':''}><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div class="grid">${rawInp('Name',e.name,`setEmp('${e.id}','name',this.value)`)}${rawInp('Funktion',e.role,`setEmp('${e.id}','role',this.value)`)}</div><div class="row"><button class="secondary" onclick="saveEmployee('${e.id}')">Protokollant speichern</button><button class="danger" onclick="delEmp('${e.id}')">Löschen</button></div></details>`}
+function saveEmployee(id){const e=byId(state.employees,id); if(e) e.open=false; saveArea('emp-'+id,'✅ Protokollant gespeichert')}
+function addEmployee(){state.employees.push({id:uid(),name:'',role:'Umweltfachliche Bauüberwachung',email:'',phone:'',open:true});render(); toast('Protokollant angelegt – bitte Namen eintragen und speichern.')} function setEmp(id,k,v){byId(state.employees,id)[k]=v;save()} function delEmp(id){state.employees=state.employees.filter(e=>e.id!==id);render()}
+
+// ---- Kontakte (zentrale Liste für Teilnehmer und Verteiler) ----
+function contactCard(c){const key='contact-'+c.id; const name=esc(c.name||'Neuer Kontakt'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; const anrede=c.anrede||''; const opts=['','Herr','Frau']; const optHtml=opts.map(o=>`<option value="${escAttr(o)}" ${o===anrede?'selected':''}>${o||'—'}</option>`).join('')+(opts.includes(anrede)?'':`<option value="${escAttr(anrede)}" selected>${esc(anrede)}</option>`); const anredeField=`<div><label>Anrede</label><select onchange="setContact('${c.id}','anrede',this.value)">${optHtml}</select></div>`; const body = c.open ? `<div style="margin-top:10px"><div class="grid">${anredeField}${rawInp('Name',c.name,`setContact('${c.id}','name',this.value)`)}${rawInp('Firma',c.company,`setContact('${c.id}','company',this.value)`)}${rawInp('Funktion',c.role,`setContact('${c.id}','role',this.value)`)}</div><div class="row"><button type="button" class="secondary" data-contact-action="save" data-contact-id="${c.id}">Kontakt speichern</button><button type="button" class="danger" data-contact-action="delete" data-contact-id="${c.id}">${c.confirmDelete?'Wirklich löschen?':'Löschen'}</button></div></div>` : ''; const head=esc((anrede?anrede+' ':'')+(c.name||'Neuer Kontakt')); return `<div class="list-item"><div class="emp-summary" data-contact-action="toggle" data-contact-id="${c.id}"><span>${head}${c.company?` <span class="muted">· ${esc(c.company)}</span>`:''}</span><span style="display:flex;align-items:center;gap:8px;pointer-events:none">${saved}<span class="muted" style="font-size:16px">${c.open?'▲':'▼'}</span></span></div>${body}</div>`}
+function addContact(){state.contacts.push({id:uid(),anrede:'',name:'',company:'',role:'',open:true});render(); toast('Kontakt angelegt – bitte ausfüllen und speichern.')}
+function setContact(id,k,v){const c=byId(state.contacts,id); if(c){c[k]=v;save();}}
+function saveContact(id){const c=byId(state.contacts,id); if(c) c.open=false; saveArea('contact-'+id,'✅ Kontakt gespeichert')}
+function toggleContact(id){
+  const c=byId(state.contacts,id); if(!c) return;
+  const willOpen=!c.open;
+  // Akkordeon: höchstens ein Kontakt gleichzeitig offen.
+  state.contacts.forEach(x=>{ x.open = (x.id===id) ? willOpen : false; });
+  save(); render();
+}
+function delContact(id){
+  const c=byId(state.contacts,id); if(!c) return;
+  if(!c.confirmDelete){
+    // Erster Tipp: andere Markierungen zurücksetzen, diesen als löschbereit markieren.
+    state.contacts.forEach(x=>{ x.confirmDelete=false; });
+    c.confirmDelete=true; render();
+    return;
+  }
+  // Zweiter Tipp: endgültig löschen.
+  state.contacts=state.contacts.filter(x=>x.id!==id);
+  save(); render(); toast('✅ Kontakt gelöscht');
+}
+
+// ---- Kontakt-Hilfen für Auswahl und Protokoll ----
+// Nachname aus "Nachname, Vorname" oder "Vorname Nachname" herausziehen.
+function contactSurname(name){
+  const s=String(name||'').trim();
+  if(!s) return '';
+  if(s.includes(',')) return s.split(',')[0].trim();      // "Ahorn, Bert" -> "Ahorn"
+  const parts=s.split(/\s+/);
+  return parts[parts.length-1];                            // "Bert Ahorn" -> "Ahorn"
+}
+// Anzeige fürs Protokoll: "Herr Ahorn" / "Frau Berg"; ohne Anrede der volle Name.
+function contactProtocolName(c){
+  if(!c) return '';
+  const anrede=String(c.anrede||'').trim();
+  if(anrede) return anrede+' '+contactSurname(c.name);
+  return String(c.name||'').trim();
+}
+// Anzeige in der App-Auswahl: volle Information.
+function contactLabel(c){
+  if(!c) return '';
+  const a=String(c.anrede||'').trim();
+  const parts=[(a?a+' ':'')+String(c.name||'').trim()];
+  if(c.company) parts.push(esc(c.company));
+  return parts.map(esc).join(' · ');
+}
+function contactById(id){return byId(state.contacts,id);}
+// Wiederverwendbare Mehrfachauswahl aus den Kontakten (alphabetisch).
+// selected = Array von Kontakt-IDs; toggleCall = JS-Funktionsname-Präfix, z. B. "toggleNewPart(".
+function contactChecklist(selected, toggleCall){
+  const sorted=state.contacts.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'de',{sensitivity:'base'}));
+  if(!sorted.length) return '<p class="muted">Noch keine Kontakte in den Stammdaten. Lege dort Kontakte an oder importiere sie aus Excel.</p>';
+  return sorted.map(c=>`<label class="pill"><input type="checkbox" ${selected.includes(c.id)?'checked':''} onchange="${toggleCall}'${c.id}')"> ${contactLabel(c)}</label>`).join('');
+}
+
+// Excel-Import: SheetJS bei Bedarf nachladen, Überschriftenzeile (Name/Firma/Funktion) selbst finden.
+function ensureSheetJs(){
+  return new Promise((resolve,reject)=>{
+    if(window.XLSX) return resolve(window.XLSX);
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>window.XLSX?resolve(window.XLSX):reject(new Error('XLSX nicht geladen'));
+    s.onerror=()=>reject(new Error('XLSX-Bibliothek konnte nicht geladen werden (Internet nötig).'));
+    document.head.appendChild(s);
+  });
+}
+function normHeader(s){return String(s==null?'':s).trim().toLowerCase();}
+async function importContactsExcel(input){
+  const file=input&&input.files&&input.files[0]; if(!file) return;
+  try{
+    const XLSX=await ensureSheetJs();
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''}); // Array von Zeilen
+    // Überschriftenzeile suchen (enthält "name")
+    let headerIdx=-1, colName=-1, colFirma=-1, colFunktion=-1, colAnrede=-1;
+    for(let r=0;r<rows.length;r++){
+      const cells=(rows[r]||[]).map(normHeader);
+      const ni=cells.findIndex(x=>x==='name');
+      if(ni>=0){
+        headerIdx=r; colName=ni;
+        colFirma=cells.findIndex(x=>x==='firma'||x==='unternehmen'||x==='firma/behörde'||x==='behörde');
+        colFunktion=cells.findIndex(x=>x==='funktion'||x==='rolle'||x==='position');
+        colAnrede=cells.findIndex(x=>x==='anrede'||x==='titel');
+        break;
+      }
+    }
+    if(headerIdx<0){ alert('In der Excel wurde keine Überschriftenzeile mit „Name" gefunden. Bitte prüfe, dass es eine Spalte „Name" gibt.'); input.value=''; return; }
+    let added=0;
+    for(let r=headerIdx+1;r<rows.length;r++){
+      const row=rows[r]||[];
+      const name=String(row[colName]==null?'':row[colName]).trim();
+      if(!name) continue;
+      const company=colFirma>=0?String(row[colFirma]==null?'':row[colFirma]).trim():'';
+      const role=colFunktion>=0?String(row[colFunktion]==null?'':row[colFunktion]).trim():'';
+      const anrede=colAnrede>=0?String(row[colAnrede]==null?'':row[colAnrede]).trim():'';
+      // Dubletten vermeiden: gleicher Name + gleiche Firma gilt als vorhanden.
+      const exists=state.contacts.some(c=>normHeader(c.name)===normHeader(name)&&normHeader(c.company||'')===normHeader(company));
+      if(exists) continue;
+      state.contacts.push({id:uid(),anrede,name,company,role,open:false});
+      added++;
+    }
+    save(); render();
+    toast(added>0?('✅ '+added+' Kontakt(e) importiert'):'Keine neuen Kontakte gefunden (evtl. bereits vorhanden).');
+  }catch(err){
+    console.error(err);
+    alert('Excel konnte nicht importiert werden:\n\n'+(err&&err.message?err.message:err));
+  }finally{
+    input.value='';
+  }
+}
 function projects(){document.getElementById('app').innerHTML=`<div class="card"><h2>Projekte (${state.projects.length})</h2><button onclick="addProject()">+ Neues Projekt</button>${state.projects.map(projectCard).join('')||'<p class="muted">Noch kein Projekt.</p>'}</div>`}
-function projectCard(p){const key='proj-'+p.id; const name=esc(p.name||'Neues Projekt'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${p.open?'open':''} ontoggle="setProjectOpen('${p.id}',this.open)"><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div style="margin-top:12px"><div class="grid">${rawInp('Projektname',p.name,`setProj('${p.id}','name',this.value)`)}${rawInp('Projektnummer',p.number,`setProj('${p.id}','number',this.value)`)}${rawInp('Auftraggeber',p.client,`setProj('${p.id}','client',this.value)`)}${rawInp('Ort / Raum / Strecke',p.location,`setProj('${p.id}','location',this.value)`)}</div>${rawTa('Projekthinweise',p.notes,`setProj('${p.id}','notes',this.value)`)}<h4>Verteiler (${(p.distribution||[]).length})</h4><div>${(p.distribution||[]).map((d,idx)=>distRow(p.id,idx,d)).join('')||'<p class="muted">Kein Verteiler eingetragen.</p>'}</div><div class="row"><button class="secondary" onclick="addDist('${p.id}')">+ Verteiler hinzufügen</button><button class="secondary" onclick="saveArea('dist-${p.id}','✅ Verteiler gespeichert')">Verteiler speichern</button>${flashTarget['dist-'+p.id]?`<span class="inline-success">${flashTarget['dist-'+p.id]}</span>`:''}</div><h4>Standardteilnehmer</h4>${employeeCheckboxes(p.standardParticipants||[],`toggleStdPart('${p.id}',`) }<br><div class="row"><button class="secondary" onclick="saveProject('${p.id}')">Projekt speichern</button><button class="danger" onclick="delProj('${p.id}')">Projekt löschen</button></div></div></details>`}
+function projectCard(p){const key='proj-'+p.id; const name=esc(p.name||'Neues Projekt'); const saved=flashTarget[key]?`<span class="inline-success">${flashTarget[key]}</span>`:''; return `<details class="list-item" ${p.open?'open':''} ontoggle="setProjectOpen('${p.id}',this.open)"><summary class="emp-summary"><span>${name} <span class="check">✓</span></span>${saved}</summary><div style="margin-top:12px"><div class="grid">${rawInp('Projektname',p.name,`setProj('${p.id}','name',this.value)`)}${rawInp('Projektnummer',p.number,`setProj('${p.id}','number',this.value)`)}${rawInp('Auftraggeber',p.client,`setProj('${p.id}','client',this.value)`)}${rawInp('Ort / Raum / Strecke',p.location,`setProj('${p.id}','location',this.value)`)}</div>${rawTa('Projekthinweise',p.notes,`setProj('${p.id}','notes',this.value)`)}<h4>Verteiler (${(p.distribution||[]).filter(id=>contactById(id)).length})</h4><p class="muted">Aus den Kontakten auswählen, an wen das Protokoll verteilt wird:</p><div>${contactChecklist((p.distribution||[]),`toggleDist('${p.id}',`)}</div><div class="row" style="margin-top:6px"><button class="secondary" onclick="addDistContact('${p.id}')">+ Neuer Kontakt</button></div><h4>Standardteilnehmer</h4><p class="muted">Werden bei neuer Begehung dieses Projekts vorausgewählt.</p>${contactChecklist(p.standardParticipants||[],`toggleStdPart('${p.id}',`) }<br><div class="row"><button class="secondary" onclick="saveProject('${p.id}')">Projekt speichern</button><button class="danger" onclick="delProj('${p.id}')">Projekt löschen</button></div></div></details>`}
 function saveProject(id){const p=byId(state.projects,id); if(p) p.open=false; saveArea('proj-'+id,'✅ Projekt gespeichert')}
 function setProjectOpen(id,isOpen){const p=byId(state.projects,id); if(p){p.open=isOpen; save()}}
-function distRow(pid,idx,d){return `<div class="grid list-item">${rawInp('Name',d.name,`setDist('${pid}',${idx},'name',this.value)`)}${rawInp('Firma',d.company,`setDist('${pid}',${idx},'company',this.value)`)}${rawInp('Funktion',d.role,`setDist('${pid}',${idx},'role',this.value)`)}${rawInp('E-Mail',d.email,`setDist('${pid}',${idx},'email',this.value)`)}<button class="danger" onclick="delDist('${pid}',${idx})">Entfernen</button></div>`}
-function addProject(){state.projects.push({id:uid(),name:'',number:'',client:'',location:'',notes:'',distribution:[],standardParticipants:[],open:true});render(); toast('Neues Projekt angelegt – bitte ausfüllen und speichern.')} function setProj(id,k,v){byId(state.projects,id)[k]=v;save()} function delProj(id){state.projects=state.projects.filter(p=>p.id!==id);render()} function addDist(pid){const p=byId(state.projects,pid); p.open=true; p.distribution.push({name:'',company:'',role:'',email:''});render(); toast('Neuer Verteiler-Eintrag angelegt – bitte ausfüllen und speichern.')} function setDist(pid,i,k,v){byId(state.projects,pid).distribution[i][k]=v;save()} function delDist(pid,i){byId(state.projects,pid).distribution.splice(i,1);render()} function toggleStdPart(pid,eid){let a=byId(state.projects,pid).standardParticipants||[];a.includes(eid)?a.splice(a.indexOf(eid),1):a.push(eid);byId(state.projects,pid).standardParticipants=a;render()}
+function toggleDist(pid,cid){const p=byId(state.projects,pid); if(!p) return; let a=Array.isArray(p.distribution)?p.distribution:[]; a.includes(cid)?a.splice(a.indexOf(cid),1):a.push(cid); p.distribution=a; render()}
+function addDistContact(pid){
+  const p=byId(state.projects,pid); if(!p) return;
+  const name=(prompt('Name des neuen Kontakts (z. B. „Nachname, Vorname"):','')||'').trim();
+  if(!name) return;
+  const company=(prompt('Firma (optional):','')||'').trim();
+  const role=(prompt('Funktion (optional):','')||'').trim();
+  const c={id:uid(),anrede:'',name,company,role,open:false};
+  state.contacts.push(c);
+  p.distribution=Array.isArray(p.distribution)?p.distribution:[];
+  p.distribution.push(c.id);
+  save(); render();
+  toast('✅ Kontakt angelegt und zum Verteiler hinzugefügt');
+}
+function addProject(){state.projects.push({id:uid(),name:'',number:'',client:'',location:'',notes:'',distribution:[],standardParticipants:[],open:true});render(); toast('Neues Projekt angelegt – bitte ausfüllen und speichern.')} function setProj(id,k,v){byId(state.projects,id)[k]=v;save()} function delProj(id){state.projects=state.projects.filter(p=>p.id!==id);render()} function toggleStdPart(pid,cid){let a=byId(state.projects,pid).standardParticipants||[];a.includes(cid)?a.splice(a.indexOf(cid),1):a.push(cid);byId(state.projects,pid).standardParticipants=a;render()}
 function newInspectionStart(){page='inspections'; state.activeInspectionId=null; renderNewInspection()}
 function inspections(){if(state.activeInspectionId) return editInspection(state.activeInspectionId); document.getElementById('app').innerHTML=`<button class="big" onclick="renderNewInspection()"><span class="plus">＋</span>Neue Begehung</button><div class="card"><h2>Alle Begehungen</h2>${state.inspections.slice().reverse().map(inspectionCard).join('')||'<p class="muted">Noch keine Begehung.</p>'}</div>`}
 function inspectionCard(i){const p=byId(state.projects,i.projectId)||{};return `<details class="list-item"><summary class="emp-summary"><span>${esc(i.date)} – ${esc(p.name)||'Projekt unbekannt'}</span><span class="muted">${esc(i.topic)}</span></summary><div style="margin-top:10px"><p class="muted">Uhrzeit: ${esc(i.time)} · Witterung: ${esc(i.weather)} · Feststellungen: ${(i.findings||[]).length}</p><div class="row"><button class="secondary" onclick="openInspection('${i.id}')">Öffnen</button><button class="secondary" onclick="editInspectionDetails('${i.id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${i.id}')">🗑 Begehung löschen</button><button class="brand" data-action="save-github" onclick="saveProtocolToGithub('${i.id}', this)">📄 Protokoll erstellen</button><button class="secondary" onclick="sharePhotosToLibrary('${i.id}', this)">📷 Fotos in Mediathek sichern</button></div></div></details>`}
@@ -155,7 +317,7 @@ function deleteInspection(id){const i=byId(state.inspections,id);const p=byId(st
 
 Alle zugehörigen Feststellungen und Fotos werden ebenfalls entfernt.`)) return; state.inspections=state.inspections.filter(x=>x.id!==id); if(state.activeInspectionId===id) state.activeInspectionId=null; save(); render(); toast('✅ Begehung gelöscht')}
 function toggleOtherTopic(){const sel=document.getElementById('newTopic')||document.getElementById('editTopic'); const wrap=document.getElementById('otherTopicWrap')||document.getElementById('editOtherTopicWrap'); if(!sel||!wrap) return; wrap.style.display=sel.value==='Anderes Thema'?'block':'none'}
-function renderNewInspection(){const me=state.employees[0]?.id||'';tempParts=me?[me]:[];tempInspectionPhotos=[];document.getElementById('app').innerHTML=`<div class="card"><h2>Neue Begehung</h2><label>Projekt</label><select id="newProject" onchange="prefillParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="newTopic" onchange="toggleOtherTopic()"><option>Baustellenbegehung</option><option>Begleitung von Arbeiten</option><option>Kartierung</option><option>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:none"><label>Bezeichnung des Themas</label><input id="newOtherTopic" type="text" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="newDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>Uhrzeit</label><input id="newTime" type="text" value="${new Date().toTimeString().slice(0,5)}"></div><div><label>Witterung</label><input id="newWeather" type="text" placeholder="wird automatisch ermittelt"><button type="button" class="secondary" onclick="autoWeather()">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="newProtocolLead" type="text" value="${escAttr(state.employees[0]?.name||'')}"></div></div><label>Bemerkung</label><textarea id="newRemark"></textarea><h3>Teilnehmer</h3><div id="newParts">${employeeCheckboxes(tempParts, 'toggleNewPart(')}</div><h3>Fotos zur Begehung</h3><p class="muted">Du kannst vorhandene Dateien auswählen oder direkt mit dem iPhone ein Foto aufnehmen.</p><label>Aus Dateien / Fotomediathek auswählen</label><input type="file" accept="image/*" multiple id="inspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="inspectionCamera" onchange="addNewInspectionCameraPhotos(this)"><div id="newCameraPreview" class="photos"></div><button onclick="createInspection()">Begehung anlegen</button></div>`; setTimeout(autoWeather,300)}
+function renderNewInspection(){tempParts=[];tempInspectionPhotos=[];document.getElementById('app').innerHTML=`<div class="card"><h2>Neue Begehung</h2><label>Projekt</label><select id="newProject" onchange="prefillParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="newTopic" onchange="toggleOtherTopic()"><option>Baustellenbegehung</option><option>Begleitung von Arbeiten</option><option>Kartierung</option><option>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:none"><label>Bezeichnung des Themas</label><input id="newOtherTopic" type="text" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="newDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div><label>Uhrzeit</label><input id="newTime" type="text" value="${new Date().toTimeString().slice(0,5)}"></div><div><label>Witterung</label><input id="newWeather" type="text" placeholder="wird automatisch ermittelt"><button type="button" class="secondary" onclick="autoWeather()">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="newProtocolLead" type="text" value="${escAttr(state.employees[0]?.name||'')}"></div></div><label>Bemerkung</label><textarea id="newRemark"></textarea><h3>Teilnehmer</h3><p class="muted">${state.employees[0]?.name?esc(state.employees[0].name)+' (Protokollant) ist immer dabei.':'Protokollant ist immer dabei.'} Weitere aus den Kontakten auswählen:</p><div id="newParts">${contactChecklist(tempParts, 'toggleNewPart(')}</div><div class="row" style="margin-top:6px"><button type="button" class="secondary" onclick="addParticipantContact('new')">+ Neuer Kontakt</button></div><h3>Fotos zur Begehung</h3><p class="muted">Du kannst vorhandene Dateien auswählen oder direkt mit dem iPhone ein Foto aufnehmen.</p><label>Aus Dateien / Fotomediathek auswählen</label><input type="file" accept="image/*" multiple id="inspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="inspectionCamera" onchange="addNewInspectionCameraPhotos(this)"><div id="newCameraPreview" class="photos"></div><button onclick="createInspection()">Begehung anlegen</button></div>`; setTimeout(autoWeather,300)}
 let tempParts=[];
 let tempInspectionPhotos=[];
 // Sammelt direkt aufgenommene Kamerafotos der NEUEN Begehung in einer temporären
@@ -175,7 +337,22 @@ function renderNewCameraPreview(){
   el.innerHTML=tempInspectionPhotos.map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removeNewCameraPhoto(${ix})">Foto löschen</button></div>`).join('');
 }
 function removeNewCameraPhoto(ix){tempInspectionPhotos.splice(ix,1);renderNewCameraPreview();}
-function prefillParticipants(){const pid=document.getElementById('newProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])]; if(!tempParts.length && state.employees[0]) tempParts=[state.employees[0].id]; document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleNewPart(')} function toggleNewPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.indexOf(eid),1):tempParts.push(eid);document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleNewPart(')}
+function prefillParticipants(){const pid=document.getElementById('newProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])].filter(id=>contactById(id)); document.getElementById('newParts').innerHTML=contactChecklist(tempParts,'toggleNewPart(')} function toggleNewPart(cid){tempParts.includes(cid)?tempParts.splice(tempParts.indexOf(cid),1):tempParts.push(cid);document.getElementById('newParts').innerHTML=contactChecklist(tempParts,'toggleNewPart(')}
+// Legt direkt aus der Begehung heraus einen neuen Kontakt an (in die zentrale Liste)
+// und markiert ihn sofort als Teilnehmer. mode 'new' oder 'edit' steuert die Anzeige-Aktualisierung.
+function addParticipantContact(mode){
+  const name=(prompt('Name des neuen Kontakts (z. B. „Nachname, Vorname"):','')||'').trim();
+  if(!name) return;
+  const company=(prompt('Firma (optional):','')||'').trim();
+  const role=(prompt('Funktion (optional):','')||'').trim();
+  const c={id:uid(),anrede:'',name,company,role,open:false};
+  state.contacts.push(c);
+  tempParts.push(c.id);
+  save();
+  const toggleCall = mode==='edit' ? 'toggleEditPart(' : 'toggleNewPart(';
+  const el=document.getElementById('newParts'); if(el) el.innerHTML=contactChecklist(tempParts,toggleCall);
+  toast('✅ Kontakt angelegt und als Teilnehmer übernommen');
+}
 
 function weatherTextFromCode(code){
   const c=Number(code);
@@ -228,9 +405,9 @@ async function autoWeatherFor(inputId, feedbackId){
 
 async function createInspection(){const projectId=document.getElementById('newProject').value;if(!projectId){alert('Bitte Projekt auswählen.');return}let topic=document.getElementById('newTopic').value;const other=document.getElementById('newOtherTopic').value.trim(); if(topic==='Anderes Thema'){ if(!other){alert('Bitte die Bezeichnung des anderen Themas eingeben.'); return;} topic=other; } const photos=[...tempInspectionPhotos]; const files=[...document.getElementById('inspectionFiles').files]; for(const file of files){photos.push({name:file.name,data:await fileToData(file),caption:''})} const i={id:uid(),projectId,topic,date:document.getElementById('newDate').value,time:document.getElementById('newTime').value,weather:document.getElementById('newWeather').value,protocolLead:document.getElementById('newProtocolLead').value,remark:document.getElementById('newRemark').value,participants:[...tempParts],photos,findings:[],status:'offen'}; state.inspections.push(i); state.activeInspectionId=i.id; tempInspectionPhotos=[]; render(); toast('✅ Begehung erfolgreich angelegt')}
 function editInspection(id){const i=byId(state.inspections,id); if(!i){state.activeInspectionId=null; render(); return;} const p=byId(state.projects,i.projectId)||{};document.getElementById('app').innerHTML=`<div class="card"><button class="secondary" style="width:100%;margin-bottom:14px;font-weight:700;font-size:1.02rem" onclick="state.activeInspectionId=null;render()">⬅ Zur Begehungsliste</button><h2>${esc(p.name)}</h2><p class="muted">Begehung vom ${esc(i.date)} ${esc(i.time)} · ${esc(i.topic)}</p><div class="photos">${(i.photos||[]).map(ph=>`<img src="${ph.data}" alt="Foto Begehung">`).join('')}</div><div class="row"><button onclick="addFinding('${id}')">+ Feststellung hinzufügen</button><button class="secondary" onclick="editInspectionDetails('${id}')">✏ Begehung bearbeiten</button><button class="danger" onclick="deleteInspection('${id}')">🗑 Begehung löschen</button><button class="brand" data-action="save-github" onclick="saveProtocolToGithub('${id}', this)">📄 Protokoll erstellen</button><button class="secondary" onclick="sharePhotosToLibrary('${id}', this)">📷 Fotos in Mediathek sichern</button></div></div><div class="card"><h2>Feststellungen (${(i.findings||[]).length})</h2>${(i.findings||[]).map((f,idx)=>findingCard(id,f,idx)).join('')||'<p class="muted">Noch keine Feststellungen.</p>'}</div>`}
-function editInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const standard=['Baustellenbegehung','Begleitung von Arbeiten','Kartierung']; const isOther=!standard.includes(i.topic); tempParts=[...(i.participants||[])]; document.getElementById('app').innerHTML=`<div class="card"><h2>Begehung bearbeiten</h2><label>Projekt</label><select id="editProject" onchange="prefillEditParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}" ${p.id===i.projectId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="editTopic" onchange="toggleOtherTopic()"><option ${!isOther&&i.topic==='Baustellenbegehung'?'selected':''}>Baustellenbegehung</option><option ${!isOther&&i.topic==='Begleitung von Arbeiten'?'selected':''}>Begleitung von Arbeiten</option><option ${!isOther&&i.topic==='Kartierung'?'selected':''}>Kartierung</option><option ${isOther?'selected':''}>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:${isOther?'block':'none'}"><label>Bezeichnung des Themas</label><input id="editOtherTopic" type="text" value="${isOther?escAttr(i.topic):''}" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="editDate" type="date" value="${escAttr(i.date)}"></div><div><label>Uhrzeit</label><input id="editTime" type="text" value="${escAttr(i.time)}"></div><div><label>Witterung</label><input id="editWeather" type="text" value="${escAttr(i.weather)}"><button type="button" class="secondary" onclick="autoWeatherFor('editWeather','weatherFeedback')">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="editProtocolLead" type="text" value="${escAttr(i.protocolLead)}"></div></div><label>Bemerkung</label><textarea id="editRemark">${esc(i.remark)}</textarea><h3>Teilnehmer</h3><div id="newParts">${employeeCheckboxes(tempParts,'toggleEditPart(')}</div><h3>Fotos zur Begehung</h3><div class="photos">${(i.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removeInspectionPhoto('${id}',${ix})">Foto löschen</button></div>`).join('')}</div><label>Aus Dateien / Fotomediathek hinzufügen</label><input type="file" accept="image/*" multiple id="editInspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="editInspectionCamera" onchange="addInspectionCameraPhotos('${id}',this)"><div class="row"><button onclick="saveInspectionDetails('${id}')">Begehung speichern</button><button class="secondary" onclick="openInspection('${id}')">Abbrechen</button></div></div>`}
-function prefillEditParticipants(){const pid=document.getElementById('editProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])]; if(!tempParts.length && state.employees[0]) tempParts=[state.employees[0].id]; document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
-function toggleEditPart(eid){tempParts.includes(eid)?tempParts.splice(tempParts.indexOf(eid),1):tempParts.push(eid);document.getElementById('newParts').innerHTML=employeeCheckboxes(tempParts,'toggleEditPart(')}
+function editInspectionDetails(id){const i=byId(state.inspections,id); if(!i) return; const standard=['Baustellenbegehung','Begleitung von Arbeiten','Kartierung']; const isOther=!standard.includes(i.topic); tempParts=[...(i.participants||[])]; document.getElementById('app').innerHTML=`<div class="card"><h2>Begehung bearbeiten</h2><label>Projekt</label><select id="editProject" onchange="prefillEditParticipants()"><option value="">Bitte auswählen</option>${state.projects.map(p=>`<option value="${p.id}" ${p.id===i.projectId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><div class="grid"><div><label>Thema</label><select id="editTopic" onchange="toggleOtherTopic()"><option ${!isOther&&i.topic==='Baustellenbegehung'?'selected':''}>Baustellenbegehung</option><option ${!isOther&&i.topic==='Begleitung von Arbeiten'?'selected':''}>Begleitung von Arbeiten</option><option ${!isOther&&i.topic==='Kartierung'?'selected':''}>Kartierung</option><option ${isOther?'selected':''}>Anderes Thema</option></select></div><div id="otherTopicWrap" style="display:${isOther?'block':'none'}"><label>Bezeichnung des Themas</label><input id="editOtherTopic" type="text" value="${isOther?escAttr(i.topic):''}" placeholder="z. B. Abstimmung mit EBA, Nachkontrolle..."></div><div><label>Datum</label><input id="editDate" type="date" value="${escAttr(i.date)}"></div><div><label>Uhrzeit</label><input id="editTime" type="text" value="${escAttr(i.time)}"></div><div><label>Witterung</label><input id="editWeather" type="text" value="${escAttr(i.weather)}"><button type="button" class="secondary" onclick="autoWeatherFor('editWeather','weatherFeedback')">Witterung aktualisieren</button><div id="weatherFeedback" class="hint"></div></div><div><label>Protokollführung</label><input id="editProtocolLead" type="text" value="${escAttr(i.protocolLead)}"></div></div><label>Bemerkung</label><textarea id="editRemark">${esc(i.remark)}</textarea><h3>Teilnehmer</h3><p class="muted">${state.employees[0]?.name?esc(state.employees[0].name)+' (Protokollant) ist immer dabei.':'Protokollant ist immer dabei.'} Weitere aus den Kontakten auswählen:</p><div id="newParts">${contactChecklist(tempParts,'toggleEditPart(')}</div><div class="row" style="margin-top:6px"><button type="button" class="secondary" onclick="addParticipantContact('edit')">+ Neuer Kontakt</button></div><h3>Fotos zur Begehung</h3><div class="photos">${(i.photos||[]).map((ph,ix)=>`<div><img src="${ph.data}"><button class="danger" onclick="removeInspectionPhoto('${id}',${ix})">Foto löschen</button></div>`).join('')}</div><label>Aus Dateien / Fotomediathek hinzufügen</label><input type="file" accept="image/*" multiple id="editInspectionFiles"><label>Direkt Foto aufnehmen</label><input type="file" accept="image/*" capture="environment" multiple id="editInspectionCamera" onchange="addInspectionCameraPhotos('${id}',this)"><div class="row"><button onclick="saveInspectionDetails('${id}')">Begehung speichern</button><button class="secondary" onclick="openInspection('${id}')">Abbrechen</button></div></div>`}
+function prefillEditParticipants(){const pid=document.getElementById('editProject').value;const p=byId(state.projects,pid);tempParts=[...(p?.standardParticipants||[])].filter(id=>contactById(id)); document.getElementById('newParts').innerHTML=contactChecklist(tempParts,'toggleEditPart(')}
+function toggleEditPart(cid){tempParts.includes(cid)?tempParts.splice(tempParts.indexOf(cid),1):tempParts.push(cid);document.getElementById('newParts').innerHTML=contactChecklist(tempParts,'toggleEditPart(')}
 async function addInspectionCameraPhotos(id,input){
   const i=byId(state.inspections,id); if(!i) return;
   const files=input && input.files ? Array.from(input.files) : [];
@@ -646,9 +823,13 @@ function protocolHtml(i,p,ai){
   let captionIndex=0;
   let figIndex=1;
 
-  const participants=(i.participants||[])
-    .map(id=>esc(byId(state.employees,id)?.name||id))
-    .join('<br>');
+  // Teilnehmer: Protokollant immer zuerst, dann ausgewählte Kontakte als "Herr/Frau Nachname".
+  const protokollantName=esc((state.employees[0]?.name||'').trim());
+  const teilnehmerKontakte=(i.participants||[])
+    .map(id=>contactById(id))
+    .filter(Boolean)
+    .map(c=>esc(contactProtocolName(c)));
+  const participants=[protokollantName, ...teilnehmerKontakte].filter(Boolean).join('<br>');
 
   const bullets=ai.bullets?.length
     ? '<ul>'+ai.bullets.map(b=>'<li>'+esc(b)+'</li>').join('')+'</ul>'
@@ -658,11 +839,14 @@ function protocolHtml(i,p,ai){
     .map(t=>'<p>'+esc(t)+'</p>')
     .join('');
 
-  // E-Mail-Adressen werden im Verteiler des fertigen Protokolls bewusst nicht ausgegeben.
+  // Verteiler: aus zentralen Kontakten auflösen (Anrede + voller Name, Firma, Funktion).
   const distributionRows=(p.distribution||[])
-    .map(d=>{
-      const c=v=>{const t=esc(v);return t&&t.trim()?t:'&nbsp;';};
-      return '<tr><td>'+c(d.name)+'</td><td>'+c(d.company)+'</td><td>'+c(d.role)+'</td></tr>';
+    .map(id=>contactById(id))
+    .filter(Boolean)
+    .map(c=>{
+      const cell=v=>{const t=esc(v);return t&&t.trim()?t:'&nbsp;';};
+      const fullName=((c.anrede?c.anrede+' ':'')+(c.name||'')).trim();
+      return '<tr><td>'+cell(fullName)+'</td><td>'+cell(c.company)+'</td><td>'+cell(c.role)+'</td></tr>';
     })
     .join('');
 
