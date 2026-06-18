@@ -241,14 +241,27 @@ function pickerSelection(ns){
   }
   return [];
 }
-// Nach Änderung an einer Auswahl: passend neu zeichnen (Begehung partiell, Projekt komplett).
+// Nach Auswahl-Änderung: Chips + Vorschläge neu zeichnen (Eingabefeld bleibt erhalten!).
+// Bei Verteiler/Standardteilnehmer zusätzlich speichern, aber NICHT die ganze Seite neu rendern,
+// damit das Eingabefeld und der Fokus erhalten bleiben.
 function pickerRefresh(ns){
-  if(ns==='newPart'||ns==='editPart'){ const el=document.getElementById('picker-'+ns); if(el) el.outerHTML=contactPicker(ns); save(); }
-  else { save(); render(); }
+  pickerUpdateChips(ns);
+  pickerUpdateSuggest(ns);
+  save();
 }
-function pickerInput(ns,val){ pickerState[ns]=pickerState[ns]||{}; pickerState[ns].q=val; pickerState[ns].open=true; const el=document.getElementById('picker-'+ns); if(el) el.outerHTML=contactPicker(ns); }
-function pickerFocus(ns){ pickerState[ns]=pickerState[ns]||{}; pickerState[ns].open=true; const el=document.getElementById('picker-'+ns); if(el) el.outerHTML=contactPicker(ns); }
-function pickerPick(ns,cid){ const sel=pickerSelection(ns); if(!sel.includes(cid)) sel.push(cid); pickerState[ns]={q:'',open:false}; pickerRefresh(ns); }
+// Aktualisiert nur die Vorschlagsliste, ohne das Eingabefeld anzufassen.
+function pickerUpdateSuggest(ns){
+  const box=document.getElementById('suggest-'+ns);
+  if(box) box.innerHTML=pickerSuggestInner(ns);
+}
+// Aktualisiert nur die Chip-Zeile.
+function pickerUpdateChips(ns){
+  const box=document.getElementById('chips-'+ns);
+  if(box) box.innerHTML=pickerChipsInner(ns);
+}
+function pickerInput(ns,val){ pickerState[ns]=pickerState[ns]||{}; pickerState[ns].q=val; pickerState[ns].open=true; pickerUpdateSuggest(ns); }
+function pickerFocus(ns){ pickerState[ns]=pickerState[ns]||{}; pickerState[ns].open=true; pickerUpdateSuggest(ns); }
+function pickerPick(ns,cid){ const sel=pickerSelection(ns); if(!sel.includes(cid)) sel.push(cid); pickerState[ns]={q:'',open:false}; const inp=document.getElementById('input-'+ns); if(inp) inp.value=''; pickerRefresh(ns); }
 function pickerRemove(ns,cid){ const sel=pickerSelection(ns); const ix=sel.indexOf(cid); if(ix>=0) sel.splice(ix,1); pickerRefresh(ns); }
 function pickerCreate(ns){
   const q=(pickerState[ns]&&pickerState[ns].q||'').trim(); if(!q) return;
@@ -256,31 +269,36 @@ function pickerCreate(ns){
   state.contacts.push(c);
   const sel=pickerSelection(ns); sel.push(c.id);
   pickerState[ns]={q:'',open:false};
+  const inp=document.getElementById('input-'+ns); if(inp) inp.value='';
   pickerRefresh(ns);
   toast('✅ „'+q+'" als neuer Kontakt angelegt und übernommen');
 }
-function contactPicker(ns){
+// Chips-Inhalt (gewählte Kontakte).
+function pickerChipsInner(ns){
+  const sel=pickerSelection(ns);
+  return sel.map(id=>{const c=contactById(id); if(!c) return ''; return `<span class="pill" style="background:var(--soft)">${contactLabel(c)} <span onclick="pickerRemove('${ns}','${id}')" style="cursor:pointer;font-weight:800;color:var(--danger);margin-left:4px">✕</span></span>`;}).filter(Boolean).join('');
+}
+// Vorschlags-Inhalt (gefilterte, ungewählte Kontakte + Anlegen-Option).
+function pickerSuggestInner(ns){
   const sel=pickerSelection(ns);
   const st=pickerState[ns]||{q:'',open:false};
+  if(!st.open) return '';
   const q=(st.q||'').trim().toLowerCase();
-  // Bereits gewählte als Chips.
-  const chips=sel.map(id=>{const c=contactById(id); if(!c) return ''; return `<span class="pill" style="background:var(--soft)">${contactLabel(c)} <span onclick="pickerRemove('${ns}','${id}')" style="cursor:pointer;font-weight:800;color:var(--danger);margin-left:4px">✕</span></span>`;}).filter(Boolean).join('');
-  // Vorschlagsliste: alphabetisch, ungewählte, nach Suchtext gefiltert.
-  let suggestions='';
-  if(st.open){
-    const sorted=state.contacts.slice()
-      .filter(c=>!sel.includes(c.id))
-      .filter(c=>{ if(!q) return true; const hay=((c.anrede||'')+' '+(c.name||'')+' '+(c.company||'')).toLowerCase(); return hay.includes(q); })
-      .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'de',{sensitivity:'base'}));
-    const items=sorted.slice(0,50).map(c=>`<div onclick="pickerPick('${ns}','${c.id}')" style="padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer">${contactLabel(c)}</div>`).join('');
-    // Unbekannten Namen anlegen anbieten.
-    const exactExists=state.contacts.some(c=>String(c.name||'').trim().toLowerCase()===q && q);
-    const createRow=(q && !exactExists)?`<div onclick="pickerCreate('${ns}')" style="padding:10px 12px;cursor:pointer;color:var(--brand);font-weight:700">+ „${esc(st.q.trim())}" als neuen Kontakt anlegen</div>`:'';
-    const inner=(items||createRow)?(items+createRow):'<div style="padding:10px 12px;color:var(--muted)">Keine Treffer.</div>';
-    suggestions=`<div style="border:1px solid var(--line);border-radius:10px;margin-top:6px;max-height:240px;overflow:auto;background:#fff">${inner}</div>`;
-  }
+  const sorted=state.contacts.slice()
+    .filter(c=>!sel.includes(c.id))
+    .filter(c=>{ if(!q) return true; const hay=((c.anrede||'')+' '+(c.name||'')+' '+(c.company||'')).toLowerCase(); return hay.includes(q); })
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'de',{sensitivity:'base'}));
+  const items=sorted.slice(0,50).map(c=>`<div onmousedown="pickerPick('${ns}','${c.id}')" style="padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer">${contactLabel(c)}</div>`).join('');
+  const exactExists=state.contacts.some(c=>String(c.name||'').trim().toLowerCase()===q && q);
+  const createRow=(q && !exactExists)?`<div onmousedown="pickerCreate('${ns}')" style="padding:10px 12px;cursor:pointer;color:var(--brand);font-weight:700">+ „${esc(st.q.trim())}" als neuen Kontakt anlegen</div>`:'';
+  const inner=(items||createRow)?(items+createRow):'<div style="padding:10px 12px;color:var(--muted)">Keine Treffer.</div>';
+  return `<div style="border:1px solid var(--line);border-radius:10px;margin-top:6px;max-height:240px;overflow:auto;background:#fff">${inner}</div>`;
+}
+function contactPicker(ns){
+  const st=pickerState[ns]||{q:'',open:false};
   const placeholder=state.contacts.length?'Name eingeben oder antippen für Liste…':'Noch keine Kontakte – Namen eingeben zum Anlegen…';
-  return `<div id="picker-${ns}" class="contact-picker">${chips?`<div style="margin-bottom:6px">${chips}</div>`:''}<input type="text" value="${escAttr(st.q||'')}" placeholder="${placeholder}" oninput="pickerInput('${ns}',this.value)" onfocus="pickerFocus('${ns}')" autocomplete="off">${suggestions}</div>`;
+  // Eingabefeld bleibt dauerhaft im DOM; nur chips-/suggest-Container werden aktualisiert.
+  return `<div id="picker-${ns}" class="contact-picker"><div id="chips-${ns}" style="margin-bottom:6px">${pickerChipsInner(ns)}</div><input id="input-${ns}" type="text" value="${escAttr(st.q||'')}" placeholder="${placeholder}" oninput="pickerInput('${ns}',this.value)" onfocus="pickerFocus('${ns}')" autocomplete="off"><div id="suggest-${ns}">${pickerSuggestInner(ns)}</div></div>`;
 }
 
 // Excel-Import: SheetJS bei Bedarf nachladen, Überschriftenzeile (Name/Firma/Funktion) selbst finden.
